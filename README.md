@@ -1,3 +1,5 @@
+<img src="frontend/public/icon-192.png" alt="" width="72" align="right">
+
 # BankPocket
 
 *Deutsch · [English](README.en.md)*
