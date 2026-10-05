@@ -4,7 +4,7 @@
 @theme {
   --font-sans: "Manrope Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
-  /* Eigenes Erscheinungsbild: Tintenblau statt Schwarz, Violett als Akzent, feine Linien statt flacher Flächen */
+  /* Eigenes Erscheinungsbild: Tintenblau statt Schwarz, klares Blau als Akzent, feine Linien statt flacher Flächen */
   --color-bg: #0e1016;
   --color-card: #171a22;
   --color-card-hi: #222634;
@@ -15,10 +15,10 @@
   --color-sheet: #13161d;
   --color-spur: #333a4c;
 
-  --color-accent: #9a8cff;
-  --color-accent-strong: #8474fb;
-  --color-accent-soft: #24214a;
-  --color-accent-ink: #120f2e;
+  --color-accent: #7fa8ff;
+  --color-accent-strong: #5f8df5;
+  --color-accent-soft: #1a2a4a;
+  --color-accent-ink: #0b1630;
 
   --color-pos: #4fd08c;
   --color-warn: #f0a63a;
@@ -40,9 +40,9 @@
   --color-sheet: #f5f3ee;
   --color-spur: #ddd9cf;
 
-  --color-accent: #5a48e0;
-  --color-accent-strong: #4937c9;
-  --color-accent-soft: #e8e5fb;
+  --color-accent: #1f5fd0;
+  --color-accent-strong: #174fb3;
+  --color-accent-soft: #e2ebfb;
   --color-accent-ink: #ffffff;
 
   --color-pos: #157f3f;

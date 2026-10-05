@@ -166,9 +166,12 @@
 
 {#snippet sektionen(liste: any[], typ: string)}
   {#each liste as s (s.turnus)}
-    <div class="flex items-baseline justify-between px-1 pb-2.5 pt-6">
-      <h2 class="text-[20px] font-bold tracking-tight">{TURNUS[s.turnus]} <span class="font-semibold text-muted">({s.anzahl})</span></h2>
-      <Amount wert={s.summe} farbig={typ === 'einnahme'} klasse="text-[15px] text-muted" />
+    <div class="flex items-center gap-3 px-1 pb-2.5 pt-6">
+      <h2 class="text-[13px] font-bold uppercase tracking-[0.08em] text-accent">{TURNUS[s.turnus]}</h2>
+      <span class="h-px flex-1 bg-line"></span>
+      <span class="text-[13px] text-muted">
+        {s.anzahl} {s.anzahl === 1 ? 'Vertrag' : 'Verträge'} · zusammen <Amount wert={s.summe} farbig={typ === 'einnahme'} />
+      </span>
     </div>
     <div class="karte overflow-hidden">
       {#each sortiert(s.vertraege) as c (c.id)}{@render zeile(c)}{/each}
@@ -187,23 +190,33 @@
   {#if !daten}
     <Laden />
   {:else}
-    <button class="karte block w-full p-5 text-left active:bg-card-hi" onclick={() => (aufteilungOffen = true)} disabled={!aufteilung.length}>
-      <div class="flex items-center justify-between text-[15px] font-semibold text-muted">
-        Verträge und Sparpläne
-        {#if aufteilung.length}<span class="flex items-center gap-0.5 font-medium text-accent">Analyse<ChevronRight size={18} /></span>{/if}
+    {@const fest = Number(daten.ausgaben_monatlich) + Number(daten.sparen_monatlich)}
+    <button class="block w-full text-left" onclick={() => (aufteilungOffen = true)} disabled={!aufteilung.length}>
+      <div class="flex items-center justify-between px-1 pb-2 text-[15px] font-semibold text-muted">
+        Was regelmäßig abgeht
+        {#if aufteilung.length}<span class="flex items-center gap-0.5 font-medium text-accent">Aufteilung<ChevronRight size={18} /></span>{/if}
       </div>
-      <div class="mt-2 flex flex-wrap items-baseline gap-x-2">
-        <span class="text-[30px] font-bold">Ø</span>
-        <Amount wert={Number(daten.ausgaben_monatlich) + Number(daten.sparen_monatlich)} klasse="text-[30px] font-bold tracking-tight" />
-        <span class="text-[17px] text-muted">/ Monat</span>
+      <div class="grid grid-cols-2 gap-2.5">
+        <div class="karte px-4 py-3.5">
+          <div class="text-[13px] text-muted">im Monat</div>
+          <Amount wert={fest} klasse="text-[24px] font-bold tracking-tight" />
+        </div>
+        <div class="karte px-4 py-3.5">
+          <div class="text-[13px] text-muted">im Jahr</div>
+          <Amount wert={fest * 12} klasse="text-[24px] font-bold tracking-tight" />
+        </div>
       </div>
       {#if Number(daten.sparen_monatlich) > 0}
-        <div class="mt-1 text-[14px] text-muted">davon Ø <Amount wert={daten.sparen_monatlich} /> pro Monat in Sparpläne</div>
+        <div class="px-1 pt-2 text-[14px] text-muted">
+          Auf den Monat umgerechnet, auch jährliche Verträge. Darin <Amount wert={daten.sparen_monatlich} /> für Sparpläne.
+        </div>
       {/if}
     </button>
 
     {#if daten.vorschlaege.length}
-      <h2 class="abschnitt !pb-1">Stimmt das? <span class="font-semibold text-muted">({daten.vorschlaege.length})</span></h2>
+      <h2 class="abschnitt flex items-center gap-2.5 !pb-1">Stimmt das?
+        <span class="rounded-full bg-accent-soft px-2.5 py-0.5 text-[13px] font-semibold text-accent">{daten.vorschlaege.length} offen</span>
+      </h2>
       <p class="px-1 pb-3 text-[14px] text-muted">
         BankPocket hat wiederkehrende Zahlungen gefunden. Sie zählen erst mit, wenn du sie als Vertrag bestätigst.
       </p>

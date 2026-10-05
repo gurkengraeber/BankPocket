@@ -8,7 +8,7 @@ const EMOJI: Record<string, string> = {
   Verkäufe: '🏷️',
 };
 
-const FARBEN = ['#9a8cff', '#7c8cff', '#ff8f6b', '#f5c542', '#5ec8ff', '#ff6fae', '#a3e05a', '#c08bff', '#ffb26b', '#4fd1a1'];
+const FARBEN = ['#7fa8ff', '#4fb0c6', '#ff8f6b', '#f5c542', '#5ec8ff', '#ff6fae', '#a3e05a', '#c08bff', '#ffb26b', '#4fd1a1'];
 
 // Emojis eigener Kategorien (und eigene Symbole für eingebaute) – beim Start und nach Änderungen aus
 // /api/kategorien gefüllt
@@ -71,7 +71,7 @@ export function bankKachel(quelle: string, name = '') {
 }
 
 // Farben für Tortendiagramme: nach Rang vergeben, damit sich Nachbarn unterscheiden
-export const TORTENFARBEN = ['#7c6cf5', '#f0a63a', '#2fb8a0', '#e8637a', '#4ea3f2', '#b88cf0', '#8fc93a', '#f28a4e', '#5cc8d8',
+export const TORTENFARBEN = ['#2f6fde', '#f0a63a', '#2fb8a0', '#e8637a', '#8fc7f5', '#b88cf0', '#8fc93a', '#f28a4e', '#5cc8d8',
   '#d870c8', '#c2b04a', '#8a93a8'];
 
 // Logos der Banken: Adresse, deren Seitensymbol der Server einmal holt (siehe bankpocket/logos.py)
