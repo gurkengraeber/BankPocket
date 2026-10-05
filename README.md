@@ -1,5 +1,7 @@
 # BankPocket
 
+*Deutsch · [English](README.en.md)*
+
 Selbst gehosteter Finanz-Tracker: Konten, Verträge, Budgets und Auswertungen – komplett auf deinem eigenen Server. Deine
 Bankdaten bleiben bei dir: BankPocket ruft die Umsätze direkt bei deinen Banken ab und speichert sie nur lokal.
 
