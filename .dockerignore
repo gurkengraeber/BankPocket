@@ -1,0 +1,13 @@
+.git
+.env
+data
+demo-daten
+caddy-daten
+exports
+frontend/node_modules
+frontend/dist
+**/__pycache__
+.pytest_cache
+*.db
+tailscale-daten/
+caddy-daten/
