@@ -8,6 +8,16 @@ Bankdaten bleiben bei dir: BankPocket ruft die Umsätze direkt bei deinen Banken
 > ING, Consorsbank, Trade Republic, Bank Norwegian und Binance; andere FinTS-Banken (Sparkassen, Volksbanken, DKB,
 > comdirect …) nutzen denselben Weg, sind aber nicht einzeln getestet. Rückmeldungen dazu sind willkommen.
 
+<p>
+  <img src="docs/bilder/uebersicht.png" alt="Übersicht mit frei verfügbarem Betrag, Budgets und Konten" width="200">
+  <img src="docs/bilder/vertraege.png" alt="Erkannte Verträge zum Bestätigen" width="200">
+  <img src="docs/bilder/vertrag.png" alt="Ein Vertrag mit Kosten pro Jahr und nächster Zahlung" width="200">
+  <img src="docs/bilder/analysen.png" alt="Vermögensverlauf mit Prognose" width="200">
+</p>
+<p><img src="docs/bilder/pc-uebersicht.png" alt="Übersicht am PC mit Kennzahlen und Konten" width="820"></p>
+
+Die Bilder zeigen die mitgelieferten Demo-Daten (alles erfunden).
+
 - **Automatische Bankabrufe** per FinTS (ING, Consorsbank, Sparkassen, Volks- und Raiffeisenbanken, DKB,
   comdirect und rund 2.000 weitere deutsche Banken), 4× täglich
 - **Freigabe per Banking-App** (ING-App, SecurePlus-App) – etwa alle 90 Tage einmal bestätigen
