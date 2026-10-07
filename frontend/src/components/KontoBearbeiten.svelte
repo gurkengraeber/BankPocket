@@ -70,7 +70,7 @@
     fuehrtZusammen = true;
     try {
       const r = await api(`/accounts/${konto.id}/zusammenfuehren`, { body: { ziel_id: ziel } });
-      toast(`${r.uebernommen} Buchungen übernommen${r.doppelt ? `, ${r.doppelt} davon gab es schon` : ''}`);
+      toast(`${r.uebernommen} ${r.uebernommen === 1 ? 'Buchung' : 'Buchungen'} übernommen${r.doppelt ? `, ${r.doppelt} davon gab es schon` : ''}`);
       offen = false;
       gehe(`/konto/${r.ziel_id}`);
     } catch (err) {
@@ -85,7 +85,7 @@
     let folgen = '';
     try {
       const f = await api(`/accounts/${konto.id}/folgen`);
-      if (f.buchungen) folgen = ` Damit verschwinden ${f.buchungen} Buchungen`;
+      if (f.buchungen) folgen = f.buchungen === 1 ? ' Damit verschwindet 1 Buchung' : ` Damit verschwinden ${f.buchungen} Buchungen`;
       if (f.vertraege)
         folgen += ` – und ${f.vertraege} ${f.vertraege === 1 ? 'Vertrag verliert' : 'Verträge verlieren'} alle Zahlungen (${f.beispiele.join(', ')}${f.vertraege > f.beispiele.length ? ' …' : ''})`;
       if (folgen) folgen += '. Zum Aufräumen genügt „Konto ausblenden“; ein altes Konto lässt sich auch in ein anderes übernehmen.';

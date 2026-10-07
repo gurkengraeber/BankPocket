@@ -247,7 +247,7 @@ def loesch_folgen(session: Session, account: Account) -> dict:
         TransactionRow.account_id == account.id, TransactionRow.contract_id.is_not(None))))
     woanders = set(session.scalars(select(TransactionRow.contract_id).where(
         TransactionRow.account_id != account.id, TransactionRow.contract_id.in_(ids)))) if ids else set()
-    vertraege = [c.name for c in session.scalars(select(ContractRow).where(ContractRow.id.in_(ids - woanders)))
+    vertraege = [c.name.strip() for c in session.scalars(select(ContractRow).where(ContractRow.id.in_(ids - woanders)))
                  if c.gilt and not c.entfernt] if ids - woanders else []
     return {"buchungen": buchungen, "vertraege": len(vertraege), "beispiele": sorted(vertraege)[:4]}
 
