@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
@@ -89,6 +90,16 @@ class SyncManager:
             return False
         job.interaktion.abbrechen()
         return True
+
+    def laufende(self) -> list[int]:
+        return [conn_id for conn_id, job in list(self._jobs.items()) if not job.fertig]
+
+    def warte_auf_ende(self, sekunden: float) -> bool:
+        """Beim Beenden: laufende Abrufe zu Ende bringen lassen (höchstens so lange). True, wenn keiner mehr läuft."""
+        ende = time.monotonic() + sekunden
+        while self.laufende() and time.monotonic() < ende:
+            time.sleep(0.2)
+        return not self.laufende()
 
     def alle_starten(self) -> list[int]:
         """„Aktualisieren“-Knopf: alle Verbindungen abrufen, bei denen du nichts ändern musst."""
@@ -230,6 +241,8 @@ class SyncManager:
                 acc.connection_id, acc.zuletzt_aktualisiert = conn.id, jetzt
                 if fa.typ == "depot" and acc.typ != "depot":  # früher mangels Kontoart falsch eingeordnet
                     acc.typ, acc.gruppe = "depot", GRUPPE_FUER_TYP["depot"]
+                elif fa.typ == "spar" and acc.typ == "giro":  # die Gruppe hat der Nutzer ggf. selbst gewählt
+                    acc.typ = "spar"
                 if fa.transaktionen:
                     neue_umsaetze += speichere_transaktionen(s, acc, fa.transaktionen)
                 if fa.holdings is not None:

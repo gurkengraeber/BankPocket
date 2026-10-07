@@ -69,11 +69,28 @@ def _extern_speichern(session: Session, account: Account, t: Transaction, existi
 
 
 def speichere_transaktionen(session: Session, account: Account, txs: list[Transaction],
-                            eindeutig: bool = False) -> int:
-    """Neue Buchungen speichern, Duplikate überspringen. eindeutig=True (manuelle Buchungen): nie Duplikat."""
+                            eindeutig: bool = False, abgleich: bool = False) -> int:
+    """Neue Buchungen speichern, Duplikate überspringen. eindeutig=True (manuelle Buchungen): nie Duplikat.
+
+    abgleich=True (CSV-Import): Dieselbe Buchung steht im Export einer Bank mit anderem Text als im Abruf. Gibt es
+    im Konto schon eine Buchung mit gleichem Datum und Betrag, die noch keiner Zeile des Imports entspricht, gilt
+    die Zeile als vorhanden – so lässt sich ältere Historie in ein angebundenes Konto laden, ohne die
+    Überschneidung zu verdoppeln."""
     seen: Counter = Counter()
     neu = 0
-    existing = set(session.scalars(select(TransactionRow.hash).where(TransactionRow.account_id == account.id)))
+    vorhanden = list(session.execute(select(TransactionRow.hash, TransactionRow.buchungsdatum, TransactionRow.betrag)
+                                     .where(TransactionRow.account_id == account.id)))
+    existing = {h for h, _, _ in vorhanden}
+    frei: Counter = Counter()  # (Datum, Betrag) → vorhandene Buchungen, die noch keiner Importzeile entsprechen
+    if abgleich and not eindeutig:
+        frei.update((tag, betrag) for _, tag, betrag in vorhanden)
+        kommt, zaehler = set(), Counter()
+        for t in txs:
+            if not t.extern_id:
+                ident = (t.buchungsdatum, t.betrag, t.gegenpartei, t.verwendungszweck)
+                kommt.add(transaction_hash(account.id, t, zaehler[ident]))
+                zaehler[ident] += 1
+        frei.subtract((tag, betrag) for h, tag, betrag in vorhanden if h in kommt)  # die erkennt schon der Hash
     for t in txs:
         if t.extern_id:
             neu += _extern_speichern(session, account, t, existing)
@@ -82,6 +99,9 @@ def speichere_transaktionen(session: Session, account: Account, txs: list[Transa
         h = transaction_hash(account.id, t, uuid.uuid4().hex if eindeutig else seen[ident])
         seen[ident] += 1
         if h in existing:
+            continue
+        if frei[(t.buchungsdatum, t.betrag)] > 0:
+            frei[(t.buchungsdatum, t.betrag)] -= 1
             continue
         existing.add(h)
         session.add(TransactionRow(
@@ -157,6 +177,16 @@ def eigene_namen(session: Session) -> list[list[str]]:
     return [w for w in (_NAMENSTEILE.findall(teil.lower()) for teil in re.split(r"[,;\n]", roh)) if w]
 
 
+def eigene_namen_zuruecknehmen(session: Session) -> int:
+    """Vor einer Änderung der Namen: was allein wegen des Namens als Umbuchung galt, zählt wieder normal.
+    Von Hand festgelegte und als Paar verbundene Buchungen bleiben."""
+    rows = list(session.scalars(select(TransactionRow).where(
+        TransactionRow.intern_name.is_(True), TransactionRow.intern_fix.is_(False))))
+    for t in rows:
+        t.intern = t.intern_name = False
+    return len(rows)
+
+
 def markiere_interne_umbuchungen(session: Session) -> None:
     """Überweisungen zwischen eigenen Konten sind keine Ausgaben/Einnahmen."""
     eigene = {i for i in session.scalars(select(Account.iban)) if i}
@@ -184,7 +214,7 @@ def markiere_interne_umbuchungen(session: Session) -> None:
                 TransactionRow.intern.is_(False), TransactionRow.intern_fix.is_(False),
                 func.lower(TransactionRow.gegenpartei).like(f"%{woerter[0]}%"))):
             if set(woerter) <= set(_NAMENSTEILE.findall((t.gegenpartei or "").lower())):
-                t.intern = True
+                t.intern = t.intern_name = True
     from .umbuchungen import automatisch_paaren
     automatisch_paaren(session)  # sichere Paare Abgang/Zugang verbinden
 
@@ -192,7 +222,7 @@ def markiere_interne_umbuchungen(session: Session) -> None:
 def import_transactions(session: Session, account: Account, txs: list[Transaction],
                         today: date | None = None, eindeutig: bool = False) -> dict:
     """CSV-Import oder manuelle Buchung: speichern, Saldo übernehmen, Verträge neu erkennen, committen."""
-    neu = speichere_transaktionen(session, account, txs, eindeutig)
+    neu = speichere_transaktionen(session, account, txs, eindeutig, abgleich=not eindeutig)
 
     # Saldo-Snapshot aus der jüngsten Buchung (ING-CSV liefert den Saldo pro Zeile mit).
     with_saldo = [t for t in txs if t.saldo is not None]
@@ -207,6 +237,69 @@ def import_transactions(session: Session, account: Account, txs: list[Transactio
     vertraege = sync_contracts(session, today)
     session.commit()
     return {"importiert": neu, "duplikate": len(txs) - neu, "vertraege": vertraege.als_dict()}
+
+
+def loesch_folgen(session: Session, account: Account) -> dict:
+    """Was am Löschen eines Kontos hängt: seine Buchungen – und die Verträge, die nur aus ihnen bestehen."""
+    buchungen = session.scalar(select(func.count()).select_from(TransactionRow)
+                               .where(TransactionRow.account_id == account.id))
+    ids = set(session.scalars(select(TransactionRow.contract_id).where(
+        TransactionRow.account_id == account.id, TransactionRow.contract_id.is_not(None))))
+    woanders = set(session.scalars(select(TransactionRow.contract_id).where(
+        TransactionRow.account_id != account.id, TransactionRow.contract_id.in_(ids)))) if ids else set()
+    vertraege = [c.name for c in session.scalars(select(ContractRow).where(ContractRow.id.in_(ids - woanders)))
+                 if c.gilt and not c.entfernt] if ids - woanders else []
+    return {"buchungen": buchungen, "vertraege": len(vertraege), "beispiele": sorted(vertraege)[:4]}
+
+
+_UEBERNEHMEN = ("kategorie", "contract_id", "notiz", "tags", "gegenbuchung_id", "iban_gegenpartei", "glaeubiger_id",
+                "mandatsreferenz", "buchungstext")
+
+
+def konten_zusammenfuehren(session: Session, quelle: Account, ziel: Account, today: date | None = None) -> dict:
+    """Alle Buchungen von `quelle` nach `ziel` übernehmen und `quelle` auflösen – etwa ein früheres CSV-Konto in
+    das inzwischen angebundene Bankkonto.
+
+    Buchungen, die es in beiden gibt (gleiches Datum, gleicher Betrag), bleiben einmal stehen: die aus der Quelle
+    mit ihrer Kategorie, Vertragszuordnung und Notiz. Sie bekommt die Kennung der Ziel-Buchung, damit der nächste
+    Abruf sie wiedererkennt und nichts doppelt anlegt."""
+    if quelle.id == ziel.id:
+        raise ValueError("Ein Konto lässt sich nicht mit sich selbst zusammenführen.")
+    frei: dict[tuple, list[TransactionRow]] = {}
+    for r in session.scalars(select(TransactionRow).where(TransactionRow.account_id == ziel.id)
+                             .order_by(TransactionRow.id)):
+        frei.setdefault((r.buchungsdatum, r.betrag), []).append(r)
+    uebernommen = doppelt = 0
+    for r in list(session.scalars(select(TransactionRow).where(TransactionRow.account_id == quelle.id)
+                                  .order_by(TransactionRow.id))):
+        gleiche = frei.get((r.buchungsdatum, r.betrag))
+        if gleiche:
+            paar = gleiche.pop(0)
+            kennung, roh, paar_id = paar.hash, paar.rohdaten, paar.id
+            for feld in _UEBERNEHMEN:  # was nur die Ziel-Buchung weiß, nicht verlieren
+                if not getattr(r, feld) and getattr(paar, feld):
+                    setattr(r, feld, getattr(paar, feld))
+            session.delete(paar)
+            session.flush()
+            session.execute(update(TransactionRow).where(TransactionRow.gegenbuchung_id == paar_id)
+                            .values(gegenbuchung_id=r.id))
+            r.hash, r.rohdaten = kennung, roh or r.rohdaten
+            doppelt += 1
+        r.account_id = ziel.id
+        uebernommen += 1
+    session.flush()
+    hat_stand = session.scalar(select(func.count()).select_from(Balance).where(Balance.account_id == ziel.id))
+    if hat_stand:
+        session.execute(delete(Balance).where(Balance.account_id == quelle.id))
+    else:
+        session.execute(update(Balance).where(Balance.account_id == quelle.id).values(account_id=ziel.id))
+    session.execute(delete(Holding).where(Holding.account_id == quelle.id))
+    session.delete(quelle)
+    session.flush()
+    markiere_interne_umbuchungen(session)
+    session.flush()
+    sync_contracts(session, today)
+    return {"uebernommen": uebernommen, "doppelt": doppelt}
 
 
 def _to_dataclass(r: TransactionRow) -> Transaction:

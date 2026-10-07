@@ -47,7 +47,8 @@ _APP_STICHWORTE = ("app", "decoupled", "push", "freigabe", "securego", "bestsign
 _GERAET_STICHWORTE = ("generator", "chiptan", "sms", "photo", "foto", "qr", "manuell", "optisch", "lesegerät")
 # Kontoabfragen, für die eine Bank nach PSD2 eine starke Authentifizierung verlangen kann
 SEGMENTE_MIT_SCA = {"HKSAL", "HKKAZ", "HKCAZ", "HKWPD"}
-OHNE_HKKAZ7 = {"76030080"}  # Consorsbank
+OHNE_HKKAZ7 = {"76030080"}  # Consorsbank – bekannt; andere Banken fallen nach der ersten Ablehnung selbst zurück
+SPARKONTO_NAMEN = re.compile(r"tagesgeld|festgeld|extra-?konto|spar(konto|buch|card|brief|plan|en\b)", re.IGNORECASE)
 _AUTH_FEHLER = (FinTSClientPINError, FinTSClientTemporaryAuthError, FinTSSCARequiredError)
 
 
@@ -155,9 +156,10 @@ def holding_zu_daten(h, heute: date) -> FetchedHolding:
     menge, kurs, wert = dec(h.pieces) or Decimal(0), dec(h.market_value), dec(h.total_value)
     if wert is None and kurs is not None:
         wert = menge * kurs
+    einstand = dec(getattr(h, "acquisitionprice", None))  # durchschnittlicher Kaufkurs, wenn die Bank ihn nennt
     return FetchedHolding(symbol=h.ISIN or "", name=(h.name or "").strip(), menge=menge, kurs=kurs,
                           wert=(wert or Decimal(0)).quantize(Decimal("0.01")),
-                          datum=h.valuation_date or heute)
+                          datum=h.valuation_date or heute, einstand=einstand if einstand and einstand > 0 else None)
 
 
 def signaturprofil_korrigieren(client) -> None:
@@ -224,6 +226,7 @@ class FinTSSource:
         self.uhr = uhr
         self.freigabe_erfolgt = False
         self.tan_erzwingen = blz in OHNE_HKKAZ7  # die Consorsbank verlangt das TAN-Segment bei jedem Kontoabruf
+        self.ohne_kaz7 = blz in OHNE_HKKAZ7  # bei anderen Banken erst nach einer Ablehnung (siehe _umsaetze)
 
     # ---------- Ablauf ----------
     def abrufen(self) -> FetchResult:
@@ -269,7 +272,7 @@ class FinTSSource:
             signaturprofil_korrigieren(client)
             if self.tan_erzwingen:
                 self._tan_segment_erzwingen(client)
-            if self.blz in OHNE_HKKAZ7:
+            if self.ohne_kaz7:
                 umsatzabfrage_ohne_version_7(client)
             self._tan_verfahren_waehlen(client)
             self._tan_medium_waehlen(client)
@@ -495,7 +498,10 @@ class FinTSSource:
             if ops.get(FinTSOperations.GET_HOLDINGS) and not (
                     ops.get(FinTSOperations.GET_TRANSACTIONS) or ops.get(FinTSOperations.GET_BALANCE)):
                 return "depot"
-            return kontoart(meta.get("type"))
+            art = kontoart(meta.get("type"))
+            if art == "giro" and meta.get("type") is None and SPARKONTO_NAMEN.search(_text(meta.get("product_name"))):
+                return "spar"  # ohne Kontoart bleibt nur der Produktname („Tagesgeldkonto“, „Extra-Konto“)
+            return art
 
         speicher = self._speicherzeitraum(client)
         konten, gesehen = [], set()
@@ -527,6 +533,23 @@ class FinTSSource:
             konten.append(fa)
         return konten
 
+    def _umsaetze(self, client, acc, start: date) -> list:
+        """Umsätze abfragen. Lehnt die Bank die neueste Fassung der Abfrage ab (9010, etwa die Consorsbank), einmal
+        mit der älteren wiederholen und für die übrigen Konten dabei bleiben."""
+        vorher = len(getattr(self, "bank_meldungen", []))
+        try:
+            return self._call(client, client.get_transactions, acc, start, self.heute) or []
+        except _AUTH_FEHLER:
+            raise
+        except FinTSError:
+            neu = [code for code, _ in getattr(self, "bank_meldungen", [])[vorher:]]
+            if self.ohne_kaz7 or "9010" not in neu:
+                raise
+            log.info("Bank lehnt die Umsatzabfrage ab (9010) – neuer Versuch mit der älteren Fassung")
+            self.ohne_kaz7 = True
+            umsatzabfrage_ohne_version_7(client)
+            return self._call(client, client.get_transactions, acc, start, self.heute) or []
+
     def _konto_laden(self, client, acc, fa: FetchedAccount, ops: dict, speicher: int | None) -> None:
         """Ein Konto laden. Fehler bei einem Konto stoppen nicht die anderen (außer Anmeldefehler)."""
         self.ia.melden("abruf", f"Lade {fa.name} …")
@@ -543,7 +566,7 @@ class FinTSSource:
                     fa.saldo = Decimal(saldo.amount.amount)
                     fa.saldo_datum = _datum(saldo.date)
             start = self._startdatum(acc.iban or acc.accountnumber, speicher)
-            umsaetze = self._call(client, client.get_transactions, acc, start, self.heute) or []
+            umsaetze = self._umsaetze(client, acc, start)
             fa.transaktionen = [t for t in (mt940_zu_transaktion(u.data) for u in umsaetze) if t]
         except _AUTH_FEHLER:
             raise

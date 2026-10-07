@@ -1,6 +1,8 @@
 """Login, Hinweise, Push und Einstellungen."""
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select, update
@@ -8,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from .. import backup
 from ..auth import COOKIE, SESSION_TAGE, erzeuge_token, pruefe_passwort, pruefe_token, session_secret
-from ..db import KeyValue, Notice, PushSubscription, TransactionRow, kv_get
-from ..service import markiere_interne_umbuchungen, sync_contracts
+from ..db import Account, KeyValue, Notice, PushSubscription, TransactionRow, kv_get
+from ..service import eigene_namen, eigene_namen_zuruecknehmen, markiere_interne_umbuchungen, sync_contracts
 from .deps import get_ctx, get_db
 
 router = APIRouter(prefix="/api")
@@ -144,19 +146,33 @@ class EigeneNamen(BaseModel):
 def eigene_namen_setzen(body: EigeneNamen, s: Session = Depends(get_db), ctx=Depends(get_ctx)):
     """Eigener Name (mehrere mit Komma): Buchungen mit diesem Namen als Gegenseite gelten als Umbuchung."""
     namen = ", ".join(n.strip() for n in body.namen.replace("\n", ",").split(",") if n.strip())[:300]
+    # Markierungen aus der Zeit vor dem Merker nachtragen: Umbuchung ohne Gegenbuchung, ohne eigene IBAN als
+    # Gegenseite und mit dem bisherigen Namen – die kam über den Namen zustande.
+    eigene_ibans = {i for i in s.scalars(select(Account.iban)) if i}
+    for woerter in eigene_namen(s):
+        for t in s.scalars(select(TransactionRow).where(
+                TransactionRow.intern.is_(True), TransactionRow.intern_fix.is_(False),
+                TransactionRow.intern_name.is_(False), TransactionRow.gegenbuchung_id.is_(None),
+                func.lower(TransactionRow.gegenpartei).like(f"%{woerter[0]}%"))):
+            if t.iban_gegenpartei not in eigene_ibans and set(woerter) <= set(
+                    re.findall(r"[^\W\d_]+", (t.gegenpartei or "").lower())):
+                t.intern_name = True
+    s.flush()
+    vorher = s.scalar(select(func.count()).select_from(TransactionRow).where(TransactionRow.intern.is_(True)))
+    zurueck = eigene_namen_zuruecknehmen(s)
     kv = s.get(KeyValue, "eigene_namen")
     if kv:
         kv.value = namen
     else:
         s.add(KeyValue(key="eigene_namen", value=namen))
     s.flush()
-    vorher = s.scalar(select(func.count()).select_from(TransactionRow).where(TransactionRow.intern.is_(True)))
     markiere_interne_umbuchungen(s)
     s.flush()
     sync_contracts(s, ctx.today())
     nachher = s.scalar(select(func.count()).select_from(TransactionRow).where(TransactionRow.intern.is_(True)))
     s.commit()
-    return {"eigene_namen": namen, "neu_markiert": nachher - vorher}
+    return {"eigene_namen": namen, "neu_markiert": max(nachher - vorher, 0),
+            "zurueckgenommen": max(vorher - nachher, 0) if zurueck else 0}
 
 
 def _sicherung(s: Session, ctx) -> dict:

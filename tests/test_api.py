@@ -817,8 +817,82 @@ def test_eigener_name_als_gegenseite_ist_eine_umbuchung(client):
         s.commit()
     assert client.get("/api/einstellungen").json()["eigene_namen"] == ""
     r = client.put("/api/einstellungen/eigene-namen", json={"namen": " Max Mustermann ,"}).json()
-    assert r == {"eigene_namen": "Max Mustermann", "neu_markiert": 2}
+    assert r == {"eigene_namen": "Max Mustermann", "neu_markiert": 2, "zurueckgenommen": 0}
     with client.app.state.ctx.session_factory() as s:
         interne = {t.hash for t in s.query(TransactionRow).filter_by(intern=True)}
     assert interne == {"n0", "n1"}  # andere Vornamen und von Hand festgelegte Buchungen bleiben
     assert client.put("/api/einstellungen/eigene-namen", json={"namen": "Max Mustermann"}).json()["neu_markiert"] == 0
+    # Name geändert oder gelöscht: was nur wegen des Namens Umbuchung war, zählt wieder normal
+    r = client.put("/api/einstellungen/eigene-namen", json={"namen": "Erika Mustermann"}).json()
+    with client.app.state.ctx.session_factory() as s:
+        assert {t.hash for t in s.query(TransactionRow).filter_by(intern=True)} == {"n3"}
+    assert client.put("/api/einstellungen/eigene-namen", json={"namen": ""}).json()["zurueckgenommen"] == 1
+    with client.app.state.ctx.session_factory() as s:
+        assert not s.query(TransactionRow).filter_by(intern=True).count()
+
+
+def _roh_buchungen(client, konto, zeilen):
+    """(Hash, Tag, Betrag, Gegenpartei[, Felder]) direkt anlegen – wie von einem Abruf oder Import."""
+    from bankpocket.db import TransactionRow
+    with client.app.state.ctx.session_factory() as s:
+        for h, tag, betrag, wer, *mehr in zeilen:
+            s.add(TransactionRow(account_id=konto, buchungsdatum=date(2026, 9, tag), betrag=betrag, gegenpartei=wer,
+                                 verwendungszweck="", hash=h, **(mehr[0] if mehr else {})))
+        s.commit()
+
+
+def test_csv_import_verdoppelt_keine_vorhandenen_roh_buchungen(client):
+    """Ältere Historie per CSV in ein angebundenes Konto: Der Abruf nennt dieselbe Buchung mit anderem Text."""
+    from bankpocket.db import TransactionRow
+
+    giro = make_account(client)
+    _roh_buchungen(client, giro, [("abruf1", 15, Decimal("-12.99"), "STREAMFLIX GMBH SEPA"),
+                              ("abruf2", 20, Decimal("-4.50"), "BAECKEREI KARTE"),
+                              ("abruf3", 20, Decimal("-4.50"), "BAECKEREI KARTE")])
+    kopf = "Buchung;Valuta;Sender / Empfänger;IBAN;BIC;Buchungstext;Verwendungszweck;Betrag;Währung\n"
+    zeile = "{0}.09.2026;{0}.09.2026;{1};DE02100100100006820101;X;Lastschrift;{2};{3};EUR\n"
+    csv = (kopf + zeile.format("15", "Streamflix GmbH", "Abo", "-12,99") + zeile.format("20", "Bäckerei", "Brot", "-4,50")
+           + zeile.format("20", "Bäckerei", "Kuchen", "-4,50") + zeile.format("20", "Bäckerei", "Kaffee", "-4,50")
+           + zeile.format("01", "Vermieter", "Miete", "-700,00")).encode()
+    r = upload(client, giro, csv)
+    assert (r["importiert"], r["duplikate"]) == (2, 3)  # dritte Bäckerei-Buchung und die Miete sind neu
+    assert upload(client, giro, csv)["importiert"] == 0  # derselbe Export noch einmal ändert nichts
+    with client.app.state.ctx.session_factory() as s:
+        assert s.query(TransactionRow).filter_by(account_id=giro).count() == 5
+
+
+def test_konto_loeschen_nennt_folgen_und_zusammenfuehren_behaelt_alles(client):
+    from bankpocket.db import Account, Connection, TransactionRow
+
+    alt = make_account(client, name="Altes CSV-Konto", quelle="csv")
+    upload(client, alt, FIXTURE)
+    vertraege_bestaetigen(client)
+    folgen = client.get(f"/api/accounts/{alt}/folgen").json()
+    assert folgen["buchungen"] > 5 and folgen["vertraege"] >= 1 and folgen["beispiele"]
+
+    neu = make_account(client, name="Bankkonto")
+    with client.app.state.ctx.session_factory() as s:  # das neue Konto hängt an einer Verbindung
+        conn = Connection(bank="ing", name="ING", blz="50010517", server_url="https://x", login_enc="x", pin_enc="x")
+        s.add(conn)
+        s.flush()
+        s.get(Account, neu).connection_id = conn.id
+        alte = s.query(TransactionRow).filter_by(account_id=alt).order_by(TransactionRow.buchungsdatum.desc()).all()
+        gleiche, eine = alte[0], alte[1]
+        kategorie_vorher, vertrag_vorher = gleiche.kategorie, gleiche.contract_id
+        s.add(TransactionRow(account_id=neu, buchungsdatum=gleiche.buchungsdatum, betrag=gleiche.betrag,
+                             gegenpartei="ANDERER TEXT VOM ABRUF", verwendungszweck="", hash="vom-abruf"))
+        s.add(TransactionRow(account_id=neu, buchungsdatum=date(2026, 10, 1), betrag=Decimal("-1.23"),
+                             gegenpartei="Nur im Abruf", verwendungszweck="", hash="nur-abruf"))
+        s.commit()
+        gleiche_id, anzahl_alt = gleiche.id, len(alte)
+    assert client.post(f"/api/accounts/{neu}/zusammenfuehren", json={"ziel_id": alt}).status_code == 409
+    r = client.post(f"/api/accounts/{alt}/zusammenfuehren", json={"ziel_id": neu}).json()
+    assert r == {"uebernommen": anzahl_alt, "doppelt": 1, "ziel_id": neu}
+    with client.app.state.ctx.session_factory() as s:
+        assert s.get(Account, alt) is None
+        zeilen = s.query(TransactionRow).filter_by(account_id=neu).all()
+        assert len(zeilen) == anzahl_alt + 1  # die doppelte nur einmal, „Nur im Abruf“ bleibt
+        g = s.get(TransactionRow, gleiche_id)
+        assert (g.hash, g.kategorie, g.contract_id) == ("vom-abruf", kategorie_vorher, vertrag_vorher)
+    # die Verträge sind noch da und aktiv
+    assert client.get(f"/api/accounts/{neu}/folgen").json()["vertraege"] == folgen["vertraege"]

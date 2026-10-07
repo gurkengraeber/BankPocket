@@ -37,7 +37,8 @@
     try {
       const r = await api('/einstellungen/eigene-namen', { method: 'PUT', body: { namen: eigeneNamen } });
       eigeneNamen = r.eigene_namen;
-      toast(r.neu_markiert ? `${r.neu_markiert} Buchungen als Umbuchung markiert` : 'Gespeichert');
+      toast(r.neu_markiert ? `${r.neu_markiert} Buchungen als Umbuchung markiert`
+        : r.zurueckgenommen ? `${r.zurueckgenommen} Buchungen zählen wieder normal` : 'Gespeichert');
     } catch (err) {
       fehler(err);
     } finally {
@@ -292,8 +293,8 @@
     </div>
     <p class="text-[13px] leading-relaxed text-muted">
       Buchungen mit diesem Namen als Absender oder Empfänger zählen als Umbuchung zwischen deinen Konten – nicht als
-      Einnahme oder Ausgabe. Mehrere Schreibweisen mit Komma trennen. Was du bei einer Buchung selbst festgelegt hast,
-      bleibt so.
+      Einnahme oder Ausgabe. Mehrere Schreibweisen mit Komma trennen. Änderst oder löschst du den Namen, zählt wieder
+      normal, was nur seinetwegen Umbuchung war. Was du bei einer Buchung selbst festgelegt hast, bleibt so.
     </p>
     <button class="knopf-primaer w-full !py-3" disabled={namenArbeitet}>Speichern</button>
   </form>

@@ -115,7 +115,8 @@ systemd service).
 
 Updating without Docker: `git pull`, `.venv/bin/pip install -r requirements.txt`, rebuild the frontend
 (`cd frontend && npm ci && npm run build`) and restart BankPocket – but not while a sync or a bank login is in
-progress.
+progress (on shutdown BankPocket waits up to 90 seconds for running syncs). If the server was off at a scheduled
+time, the sync is caught up shortly after start.
 
 ## 3. Connecting accounts
 
@@ -260,11 +261,12 @@ transfers, categories – is described in [docs/FUNKTIONEN.md](docs/FUNKTIONEN.m
 | “Keine FinTS-Produkt-ID eingetragen” | Set `BANKPOCKET_FINTS_PRODUCT_ID` in `.env` and restart BankPocket |
 | “Die Bank hat die Anmeldung abgelehnt … Meldung der Bank: 9942 – PIN ungültig” | The bank does not accept the login or PIN. **Do not retry repeatedly** – banks lock the access after three failed attempts. Log in on the bank's website first, then re-enter the credentials in BankPocket. Consorsbank: the login is the account number followed by `001` |
 | Another “Meldung der Bank” (message from the bank) | Error number and text come straight from the bank – with them you usually find the cause in the forums of banking programs (Hibiscus, Subsembly); feel free to open an issue |
-| Only 90 days of transactions | Many banks do not return more via sync. Export older transactions as CSV and load them via *Konto hinzufügen → Kontoauszug importieren* **into the same account** |
+| Only 90 days of transactions | Many banks do not return more via sync. Export older transactions as CSV and load them via *Konto hinzufügen → Kontoauszug importieren* **into the same account** – transactions that already exist there with the same date and amount are not created twice |
+| Old CSV account and new bank account side by side | Open the old account → “Konto bearbeiten” → “In ein anderes Konto übernehmen”. Transactions, categories and contracts move to the bank account, duplicates are kept once |
 | Trade Republic: “Fehler 401” or timeout | Enter the code from the authenticator app first, then confirm the request in the Trade Republic app – quickly, the login expires after about two minutes. After several failed attempts Trade Republic blocks for a while |
 | Bank Norwegian: error page at `https://localhost/…` | Intended without HTTPS: copy the address from the address bar and paste it into BankPocket. If it contains `error=…`, the account is not linked at Enable Banking |
 | No push, no “Add to home screen” | Only works over HTTPS – section 4 |
-| Contracts are gone after deleting an account | Deleting takes the transactions with it, and the contracts depend on them. Prefer “Konto ausblenden” (hide account); otherwise restore from the backup |
+| Contracts are gone after deleting an account | Deleting takes the transactions with it, and the contracts depend on them – the confirmation tells you how many. Prefer “Konto ausblenden” (hide account) or moving it into another account; otherwise restore from the backup |
 
 The log helps: `docker compose logs bankpocket | tail -50` (without Docker: `tail -50 bankpocket.log`). PINs and
 the content of the bank dialogs are not in there.
@@ -291,6 +293,7 @@ on made-up data.
 ```bash
 pip install -r requirements-dev.txt
 pytest                                    # tests with a simulated bank, synthetic data only
+python scripts/oberflaeche_pruefen.py     # opens every page with demo data and reports errors (needs Chromium)
 
 # look at the frontend with demo data (no bank access)
 BANKPOCKET_DATA_DIR=demo-daten python -m bankpocket.demo

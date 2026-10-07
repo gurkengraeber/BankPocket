@@ -111,7 +111,8 @@ Startskript legen und mit `setsid nohup ./start.sh >> bankpocket.log 2>&1 &` sta
 
 Aktualisieren ohne Docker: `git pull`, `.venv/bin/pip install -r requirements.txt`, die Oberfläche neu bauen
 (`cd frontend && npm ci && npm run build`) und BankPocket neu starten – aber nicht, während gerade ein Abruf oder
-eine Anmeldung bei einer Bank läuft.
+eine Anmeldung bei einer Bank läuft (BankPocket wartet beim Beenden bis zu 90 Sekunden auf laufende Abrufe).
+War der Server zu einer Abrufzeit aus, holt BankPocket den Abruf kurz nach dem Start nach.
 
 ## 3. Konten verbinden
 
@@ -259,11 +260,12 @@ Kategorien – steht in [docs/FUNKTIONEN.md](docs/FUNKTIONEN.md).
 | „Keine FinTS-Produkt-ID eingetragen“ | `BANKPOCKET_FINTS_PRODUCT_ID` in der `.env` setzen und BankPocket neu starten |
 | „Die Bank hat die Anmeldung abgelehnt … Meldung der Bank: 9942 – PIN ungültig“ | Die Bank akzeptiert Login oder PIN nicht. **Nicht mehrfach wiederholen** – nach drei Fehlversuchen sperren Banken den Zugang. Erst auf der Website der Bank anmelden, dann die Zugangsdaten in BankPocket neu eintragen. Consorsbank: Login ist die Kontonummer mit `001` am Ende |
 | Eine andere „Meldung der Bank“ | Fehlernummer und Text stammen direkt von der Bank – damit findest du in den Foren der Banking-Programme (Hibiscus, Subsembly) meist die Ursache; gern auch als Issue melden |
-| Nur 90 Tage Buchungen | Mehr geben viele Banken per Abruf nicht heraus. Ältere Umsätze als CSV exportieren und über *Konto hinzufügen → Kontoauszug importieren* **in dasselbe Konto** laden |
+| Nur 90 Tage Buchungen | Mehr geben viele Banken per Abruf nicht heraus. Ältere Umsätze als CSV exportieren und über *Konto hinzufügen → Kontoauszug importieren* **in dasselbe Konto** laden – Buchungen, die es dort mit gleichem Datum und Betrag schon gibt, werden nicht doppelt angelegt |
+| Altes CSV-Konto und neues Bankkonto nebeneinander | Das alte Konto öffnen → „Konto bearbeiten“ → „In ein anderes Konto übernehmen“. Buchungen, Kategorien und Verträge wandern ins Bankkonto, Doppelte bleiben einmal stehen |
 | Trade Republic: „Fehler 401“ oder Zeitüberschreitung | Erst den Code aus der Authenticator-App eingeben, dann die Anfrage in der Trade-Republic-App bestätigen – zügig, die Anmeldung läuft nach rund zwei Minuten ab. Nach mehreren Fehlversuchen sperrt Trade Republic für einige Zeit |
 | Bank Norwegian: Fehlerseite unter `https://localhost/…` | Ohne HTTPS gewollt: die Adresse aus der Adresszeile kopieren und in BankPocket einfügen. Steht darin `error=…`, ist das Konto bei Enable Banking nicht verknüpft |
 | Kein Push, kein „Zum Startbildschirm“ | Geht nur über HTTPS – Abschnitt 4 |
-| Verträge sind nach dem Löschen eines Kontos weg | Löschen nimmt die Buchungen mit, daran hängen die Verträge. Lieber „Konto ausblenden“; sonst aus der Sicherung zurückholen |
+| Verträge sind nach dem Löschen eines Kontos weg | Löschen nimmt die Buchungen mit, daran hängen die Verträge – die Rückfrage nennt, wie viele. Lieber „Konto ausblenden“ oder in ein anderes Konto übernehmen; sonst aus der Sicherung zurückholen |
 
 Das Protokoll hilft weiter: `docker compose logs bankpocket | tail -50` (ohne Docker: `tail -50 bankpocket.log`).
 PINs und der Inhalt der Bankdialoge stehen dort nicht.
@@ -290,6 +292,7 @@ laufen ausschließlich mit erfundenen Daten.
 ```bash
 pip install -r requirements-dev.txt
 pytest                                    # Tests mit simulierter Bank, nur synthetische Daten
+python scripts/oberflaeche_pruefen.py     # öffnet jede Seite mit Demo-Daten und meldet Fehler (braucht Chromium)
 
 # Oberfläche mit Demo-Daten ansehen (ohne Bankzugang)
 BANKPOCKET_DATA_DIR=demo-daten python -m bankpocket.demo

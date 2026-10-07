@@ -331,3 +331,46 @@ def test_consorsbank_fragt_umsaetze_nicht_in_version_7_ab():
     umsatzabfrage_ohne_version_7(client)
     assert client._find_highest_supported_command(HKKAZ5, HKKAZ6, HKKAZ7) is HKKAZ6
     assert client._find_highest_supported_command(HKSAL5, HKSAL6) is HKSAL6
+
+
+def test_kaufkurs_kontoart_und_rueckfall_der_umsatzabfrage(umgebung):
+    """Depot mit Kaufkurs; „Extra-Konto“ ohne Kontoart ist ein Sparkonto; eine Bank, die die neueste Fassung der
+    Umsatzabfrage mit 9010 ablehnt, bekommt die ältere – ohne dass die Bank dafür bekannt sein muss."""
+    from fints.exceptions import FinTSClientError
+
+    from fints_fake import FakeClient
+
+    abgelehnt, zustand = [], {"aeltere_fassung": False}
+
+    class Zickig(FakeClient):
+        def _process_response(self, dialog, segment, response):
+            pass
+
+        def _find_highest_supported_command(self, *kommandos, **kw):
+            zustand["aeltere_fassung"] = True
+            return kommandos[-1]
+
+        def get_transactions(self, acc, start, end):
+            if not zustand["aeltere_fassung"] and not abgelehnt:
+                abgelehnt.append(acc.accountnumber)
+                self._process_response(None, None, NS(code="9010", text="Verarbeitung nicht möglich."))
+                raise FinTSClientError("abgelehnt")
+            return super().get_transactions(acc, start, end)
+
+    class ZickigeBank(FakeBank):
+        def factory(self, blz, login, pin, url, product_id=None, from_data=None, tan_medium=None):
+            c = Zickig(self, login, pin, from_data, tan_medium)
+            self.clients.append(c)
+            return c
+
+    bank = ZickigeBank(HEUTE, ohne_kontoart=True)
+    ctx, _ = umgebung(bank)
+    cid = verbindung(ctx)
+    assert ctx.manager.ausfuehren(cid, interaktiv=True, erstverbindung=True) == "ok"
+    assert abgelehnt == ["0000000001"]
+    with ctx.session_factory() as s:
+        konten = {a.name: a for a in s.scalars(select(Account))}
+        assert (konten["Girokonto"].typ, konten["Extra-Konto"].typ, konten["Direkt-Depot"].typ) == ("giro", "spar", "depot")
+        assert s.scalar(select(func.count()).select_from(TransactionRow).where(
+            TransactionRow.account_id == konten["Girokonto"].id)) > 5  # trotz Ablehnung beim ersten Versuch
+        assert s.scalar(select(Holding.einstand)) == 80

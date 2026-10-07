@@ -116,6 +116,8 @@ class TransactionRow(Base):
     gesehen: Mapped[bool] = mapped_column(Boolean, default=False)  # Badge „neue Buchungen“
     intern: Mapped[bool] = mapped_column(Boolean, default=False)  # Umbuchung zwischen eigenen Konten
     intern_fix: Mapped[bool] = mapped_column(Boolean, default=False)  # Umbuchung vom Nutzer festgelegt – bleibt so
+    # Umbuchung nur, weil der eigene Name als Gegenseite steht – lässt sich mit der Einstellung zurücknehmen
+    intern_name: Mapped[bool] = mapped_column(Boolean, default=False)
     notiz: Mapped[str] = mapped_column(Text, default="")
     gegenbuchung_id: Mapped[int | None] = mapped_column(Integer)  # andere Seite einer Umbuchung (eigenes Konto)
     paar_nein: Mapped[str] = mapped_column(Text, default="")  # Buchungen, die der Nutzer als Gegenbuchung ablehnt

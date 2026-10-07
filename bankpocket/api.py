@@ -1,6 +1,8 @@
 """Web-App: REST-API und Auslieferung der Oberfläche. Start siehe bankpocket/main.py."""
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -9,7 +11,7 @@ from typing import Callable
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import ENCODERS_BY_TYPE
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 
 from .auth import COOKIE, LoginBremse, pruefe_token, session_secret
 from .config import Settings
@@ -28,6 +30,9 @@ from .routes import ki as ki_routen
 from .scheduler import Scheduler
 from .sync import SyncManager
 from .vault import Vault
+
+log = logging.getLogger(__name__)
+BEENDEN_WARTEN = 90  # Sekunden, die ein laufender Abruf beim Beenden noch bekommt
 
 # Die Rückkehr von der Bank kommt als Weiterleitung von einer fremden Seite – das Session-Cookie (SameSite=Strict)
 # wird dabei nicht mitgeschickt. Geschützt ist sie durch den zufälligen „state“ der laufenden Freigabe.
@@ -74,11 +79,22 @@ def create_app(settings: Settings | None = None, today: Callable[[], date] = dat
                 finally:
                     backup.taeglich(ctx)  # einmal am Tag, nach dem ersten Abruf
 
-            app.state.scheduler = Scheduler(settings.abrufzeiten, settings.zeitzone, lauf)
+            def verpasst(geplant) -> bool:
+                """Seit der letzten geplanten Zeit hat keine Verbindung einen Abruf versucht."""
+                with session_factory() as s:
+                    letzter = s.scalar(select(func.max(Connection.letzter_versuch)))
+                    hat_verbindungen = s.scalar(select(func.count()).select_from(Connection))
+                return bool(hat_verbindungen) and (letzter is None or letzter < geplant.replace(tzinfo=None))
+
+            app.state.scheduler = Scheduler(settings.abrufzeiten, settings.zeitzone, lauf, verpasst=verpasst)
             app.state.scheduler.start()
         yield
         if app.state.scheduler:
             app.state.scheduler.stop()
+        # Laufende Abrufe (eine Anmeldung, auf deren Freigabe gewartet wird) nicht mitten im Schritt abreißen
+        if ctx.manager.laufende():
+            log.info("Beenden: warte auf laufende Abrufe %s (höchstens %s s)", ctx.manager.laufende(), BEENDEN_WARTEN)
+            await asyncio.to_thread(ctx.manager.warte_auf_ende, BEENDEN_WARTEN)
 
     app = FastAPI(title="BankPocket", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json",
                   redoc_url=None)

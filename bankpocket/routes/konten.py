@@ -17,7 +17,8 @@ from .. import logos, umbuchungen
 from ..analysen import _kategorie, ist_steuer
 from ..db import GRUPPEN, KONTOTYPEN, Account, Balance, Connection, ContractRow, Holding, Price, TransactionRow
 from ..models import Transaction
-from ..service import (_to_dataclass, account_saldo, holdings_setzen, import_transactions, saldo_setzen,
+from ..service import (_to_dataclass, account_saldo, holdings_setzen, import_transactions, konten_zusammenfuehren,
+                       loesch_folgen, saldo_setzen,
                        sync_contracts, zahlung_anrechnen)
 from .deps import get_ctx, get_db
 
@@ -190,6 +191,32 @@ def patch_account(account_id: int, body: AccountPatch, s: Session = Depends(get_
         setattr(acc, k, v)
     s.commit()
     return {"ok": True}
+
+
+class ZusammenfuehrenIn(BaseModel):
+    ziel_id: int
+
+
+@router.get("/accounts/{account_id}/folgen")
+def konto_folgen(account_id: int, s: Session = Depends(get_db)):
+    """Was beim Löschen dieses Kontos verloren ginge – für die Rückfrage."""
+    return loesch_folgen(s, get_account(s, account_id))
+
+
+@router.post("/accounts/{account_id}/zusammenfuehren")
+def konto_zusammenfuehren(account_id: int, body: ZusammenfuehrenIn, s: Session = Depends(get_db), ctx=Depends(get_ctx)):
+    """Dieses Konto in ein anderes übernehmen (z. B. altes CSV-Konto → angebundenes Bankkonto)."""
+    quelle, ziel = get_account(s, account_id), get_account(s, body.ziel_id)
+    if quelle.id == ziel.id:
+        raise HTTPException(422, "Bitte ein anderes Konto wählen.")
+    if quelle.connection_id is not None:
+        raise HTTPException(409, "Dieses Konto gehört zu einer Bankverbindung und käme beim nächsten Abruf zurück. "
+                                 "Übernimm stattdessen das andere Konto in dieses.")
+    if "depot" in (quelle.typ, ziel.typ):
+        raise HTTPException(422, "Depots lassen sich nicht zusammenführen.")
+    ergebnis = konten_zusammenfuehren(s, quelle, ziel, ctx.today())
+    s.commit()
+    return {**ergebnis, "ziel_id": ziel.id}
 
 
 @router.delete("/accounts/{account_id}", status_code=204)
