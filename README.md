@@ -114,6 +114,15 @@ Aktualisieren ohne Docker: `git pull`, `.venv/bin/pip install -r requirements.tx
 eine Anmeldung bei einer Bank läuft (BankPocket wartet beim Beenden bis zu 90 Sekunden auf laufende Abrufe).
 War der Server zu einer Abrufzeit aus, holt BankPocket den Abruf kurz nach dem Start nach.
 
+**Automatisch aktualisieren (ohne Docker, ohne Node auf dem Server):** `scripts/veroeffentlichen.sh` baut die Oberfläche
+und veröffentlicht Code samt fertiger Oberfläche als Zweig `release` auf GitHub. Auf dem Server liegt das Projekt als
+Git-Ordner auf diesem Zweig, und ein Cronjob `*/5 * * * * /bin/bash ~/bankpocket/scripts/auto_deploy.sh` holt ihn alle
+fünf Minuten: Oberfläche ersetzen ohne Neustart, bei geändertem Code Neustart – nie mitten in einem Abruf, mit
+Zurücksetzen, falls BankPocket danach nicht läuft (Protokoll `auto_deploy.log`, ausschalten mit einer Datei
+`.autodeploy_aus`). `.env`, `data/` und `.venv` bleiben unberührt. Einrichtung: im Projektordner
+`git init -b release && git remote add origin <Repo-Adresse> && git fetch origin release && git checkout -f -B release FETCH_HEAD`,
+dann den Cronjob eintragen.
+
 ## 3. Konten verbinden
 
 In der App: **Konto hinzufügen** → Quelle wählen. Beim ersten Abruf holt BankPocket so viel Historie,

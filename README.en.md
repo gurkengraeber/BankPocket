@@ -118,6 +118,15 @@ Updating without Docker: `git pull`, `.venv/bin/pip install -r requirements.txt`
 progress (on shutdown BankPocket waits up to 90 seconds for running syncs). If the server was off at a scheduled
 time, the sync is caught up shortly after start.
 
+**Updating automatically (without Docker, without Node on the server):** `scripts/veroeffentlichen.sh` builds the frontend
+and publishes code plus the built frontend as the `release` branch on GitHub. On the server the project is a Git
+checkout of that branch, and a cron job `*/5 * * * * /bin/bash ~/bankpocket/scripts/auto_deploy.sh` fetches it every
+five minutes: the frontend is replaced without a restart, changed code restarts BankPocket – never in the middle of a
+sync, with a rollback if it does not come up (log `auto_deploy.log`, switch off with a file `.autodeploy_aus`).
+`.env`, `data/` and `.venv` are left alone. Setup: in the project folder
+`git init -b release && git remote add origin <repo address> && git fetch origin release && git checkout -f -B release FETCH_HEAD`,
+then add the cron job.
+
 ## 3. Connecting accounts
 
 In the app: **Konto hinzufügen** (add account) → choose a source. On the first sync BankPocket fetches as much
