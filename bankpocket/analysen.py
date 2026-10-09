@@ -49,6 +49,8 @@ def gehaltsmonat_buchungen(s: Session, start: date, ende: date | None = None) ->
     if ende:
         q = q.where(TransactionRow.buchungsdatum < ende)
     gueltig = {c.id for c in s.scalars(select(ContractRow).where(ContractRow.entfernt.is_(False))) if c.gilt}
+    ausgaben_vertraege = {c.id for c in s.scalars(select(ContractRow).where(ContractRow.entfernt.is_(False),
+                                                                           ContractRow.typ == "ausgabe")) if c.gilt}
     toepfe: dict[str, list[TransactionRow]] = {art: [] for art in GEHALT_ARTEN}
     anteil = anteile(s)
     for t in s.scalars(q.order_by(TransactionRow.buchungsdatum.desc(), TransactionRow.id.desc())):
@@ -57,8 +59,10 @@ def gehaltsmonat_buchungen(s: Session, start: date, ende: date | None = None) ->
             toepfe["ausgeschlossen"].append(t)
         elif _kategorie(t) in NICHT_AUSGABEN:  # Kauf fürs Depot – oder ein Verkauf, der das Gesparte mindert
             toepfe["sparen"].append(t)
+        elif t.betrag > 0 and t.rueckzahlung:  # Rückzahlung mindert die Ausgaben – die des Vertrags, zu dem sie gehört
+            toepfe["vertraege" if t.contract_id in ausgaben_vertraege else "sonstige"].append(t)
         elif t.betrag > 0:
-            toepfe["sonstige" if t.rueckzahlung else "einnahmen"].append(t)  # Rückzahlung mindert die Ausgaben
+            toepfe["einnahmen"].append(t)
         else:
             toepfe["vertraege" if t.contract_id in gueltig else "sonstige"].append(t)
     return toepfe
@@ -279,7 +283,8 @@ def anteile(s: Session) -> dict[int, Decimal]:
 
 def _eigener(t: TransactionRow, anteil: dict[int, Decimal]) -> Decimal:
     """Der eigene Teil einer Buchung; merkt ihn an der Buchung, damit Listen ihn anzeigen können."""
-    t.mein_betrag = t.betrag * anteil[t.contract_id] if t.contract_id in anteil and t.betrag < 0 else t.betrag
+    t.mein_betrag = (t.betrag * anteil[t.contract_id] if t.contract_id in anteil and (t.betrag < 0 or t.rueckzahlung)
+                     else t.betrag)
     return t.mein_betrag
 
 

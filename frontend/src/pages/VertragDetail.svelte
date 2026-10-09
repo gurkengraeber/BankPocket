@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BellRing, CalendarDays, Check, ChevronRight, Hourglass, Pencil, Plus, Search, TrendingDown, TrendingUp } from '@lucide/svelte';
+  import { BellRing, CalendarDays, Check, ChevronRight, Hourglass, Pencil, Plus, Search, TrendingDown, TrendingUp, Undo2 } from '@lucide/svelte';
   import { onMount } from 'svelte';
   import Amount from '../components/Amount.svelte';
   import BuchungDetail from '../components/BuchungDetail.svelte';
@@ -73,6 +73,42 @@
       await api(`/buchungen/${b.id}`, { method: 'PATCH', body: { contract_id: id } });
       toast('Buchung zugeordnet');
       await Promise.all([laden(), suchen()]);
+    } catch (e) {
+      fehler(e);
+    }
+  }
+
+  // Rückzahlung eintragen: Geld, das der Anbieter zurücküberwiesen hat (Erstattung, Gutschrift) – die Buchung wird
+  // als Rückzahlung markiert und gehört dann zu diesem Vertrag. Er kostet entsprechend weniger.
+  let rzOffen = $state(false);
+  let rzSuche = $state('');
+  let rzTreffer = $state<any[] | null>(null);
+  let rzTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function rzSuchen() {
+    try {
+      const p = new URLSearchParams({ limit: '80', eingaenge: 'true' });
+      if (rzSuche.trim()) p.set('suche', rzSuche.trim());
+      const d = await api(`/buchungen?${p}`);
+      rzTreffer = d.buchungen.filter((b: any) => b.contract_id !== id);
+    } catch (e) {
+      fehler(e);
+    }
+  }
+
+  function rzOeffnen() {
+    rzSuche = v.name;
+    rzTreffer = null;
+    rzOffen = true;
+    rzSuchen();
+  }
+
+  async function rzEintragen(b: any) {
+    try {
+      await api(`/buchungen/${b.id}`, { method: 'PATCH', body: { rueckzahlung: true, kategorie: v.kategorie, contract_id: id } });
+      toast('Rückzahlung eingetragen');
+      rzOffen = false;
+      await laden();
     } catch (e) {
       fehler(e);
     }
@@ -172,7 +208,7 @@
         <div class="rounded-2xl bg-card px-3.5 py-2.5">
           <div class="text-[12px] text-muted">Letzte 12 Monate</div>
           <Amount wert={Math.abs(Number(v.gezahlt_12_monate))} klasse="text-[17px] font-semibold" />
-          <div class="text-[11px] text-faint">tatsächlich gebucht</div>
+          <div class="text-[11px] text-faint">tatsächlich gebucht{Number(v.rueckzahlungen) > 0 ? ', abzüglich Rückzahlungen' : ''}</div>
         </div>
       </div>
       <div class="mt-3 flex flex-wrap justify-center gap-2">
@@ -290,7 +326,7 @@
       {#each v.zahlungen as z (z.id)}
         <button class="zeile" onclick={() => { detailId = z.id; detailOffen = true; }}>
           <div class="min-w-0 flex-1">
-            <div class="text-[16px]">{datum(z.datum)}</div>
+            <div class="flex items-center gap-2 text-[16px]">{datum(z.datum)}{#if z.rueckzahlung}<span class="pill bg-accent-soft text-accent"><Undo2 size={13} /> Rückzahlung</span>{/if}</div>
             <div class="truncate text-[13px] text-muted">{z.konto_name}{z.verwendungszweck ? ` · ${z.verwendungszweck}` : ''}</div>
           </div>
           <Amount wert={z.betrag} vorzeichen farbig klasse="text-[16px] font-medium" />
@@ -301,6 +337,15 @@
         <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent"><Plus size={20} /></span>
         <span class="flex-1 text-[16px] text-accent">Buchung zuordnen</span>
       </button>
+      {#if v.typ === 'ausgabe'}
+        <button class="zeile" onclick={rzOeffnen}>
+          <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent"><Undo2 size={20} /></span>
+          <span class="min-w-0 flex-1 text-left">
+            <span class="block text-[16px] text-accent">Rückzahlung eintragen</span>
+            <span class="block text-[13px] text-muted">Geld, das du von {v.name} zurückbekommen hast</span>
+          </span>
+        </button>
+      {/if}
     </div>
 
     <button class="knopf-gefahr mt-8 w-full" onclick={entfernen}>Vertrag entfernen</button>
@@ -384,6 +429,40 @@
           <span class="min-w-0 flex-1">
             <span class="block truncate text-[16px]">{b.gegenpartei || b.verwendungszweck || b.buchungstext || 'Buchung'}</span>
             <span class="block truncate text-[13px] text-muted">{datum(b.datum)} · {b.konto_name}{b.contract_id ? ' · gehört zu anderem Vertrag' : ''}</span>
+          </span>
+          <Amount wert={b.betrag} vorzeichen farbig klasse="text-[16px] font-medium" />
+          <Plus size={18} class="shrink-0 text-accent" />
+        </button>
+      {/each}
+    </div>
+  {/if}
+</Sheet>
+
+<Sheet bind:offen={rzOffen} titel="Rückzahlung eintragen">
+  <p class="-mt-2 mb-3 text-[14px] text-muted">
+    Wähle den Geldeingang, der von {v?.name} zurückkam. Er zählt dann nicht als Einnahme, sondern mindert, was dich der Vertrag kostet.
+  </p>
+  <label class="relative mb-3 block">
+    <Search size={18} class="absolute left-4 top-1/2 -translate-y-1/2 text-faint" />
+    <input
+      class="feld !rounded-full !py-3 pl-11"
+      placeholder="Absender, Verwendungszweck oder Tag"
+      type="search"
+      bind:value={rzSuche}
+      oninput={() => { clearTimeout(rzTimer); rzTimer = setTimeout(rzSuchen, 300); }}
+    />
+  </label>
+  {#if !rzTreffer}
+    <Laden form="liste" />
+  {:else if !rzTreffer.length}
+    <p class="py-8 text-center text-[15px] text-muted">Keine Geldeingänge gefunden. Lösche den Suchbegriff, um alle zu sehen.</p>
+  {:else}
+    <div class="karte overflow-hidden">
+      {#each rzTreffer as b (b.id)}
+        <button class="zeile" onclick={() => rzEintragen(b)}>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-[16px]">{b.gegenpartei || b.verwendungszweck || b.buchungstext || 'Buchung'}</span>
+            <span class="block truncate text-[13px] text-muted">{datum(b.datum)} · {b.konto_name}{b.rueckzahlung ? ' · schon als Rückzahlung markiert' : ''}{b.contract_id ? ' · gehört zu anderem Vertrag' : ''}</span>
           </span>
           <Amount wert={b.betrag} vorzeichen farbig klasse="text-[16px] font-medium" />
           <Plus size={18} class="shrink-0 text-accent" />

@@ -15,7 +15,7 @@ from ..contracts import (NICHT_AUSGABEN, TURNI, add_months, average_monthly_expe
                          naechster_termin, summary_by_turnus)
 from .. import logos
 from ..db import Account, ContractRow, TransactionRow
-from ..service import contract_status, kuendigung, pruefe_kuendigungen, sync_contracts
+from ..service import contract_status, ist_rueckzahlung, kuendigung, pruefe_kuendigungen, sync_contracts
 from .deps import get_ctx, get_db
 
 router = APIRouter(prefix="/api")
@@ -185,7 +185,9 @@ def contract_detail(contract_id: int, s: Session = Depends(get_db), ctx=Depends(
             "gezahlt_12_monate": sum((t.betrag for t in zahlungen if vor_einem_jahr < t.buchungsdatum <= heute),
                                      Decimal(0)) * anteil,
             "gezahlt_gesamt": sum((t.betrag for t in zahlungen), Decimal(0)),
-            "zahlungen": [{"id": t.id, "datum": t.buchungsdatum, "betrag": t.betrag,
+            # was davon als Rückzahlung (Erstattung) zurückkam – steckt schon in den Summen darüber
+            "rueckzahlungen": sum((t.betrag for t in zahlungen if ist_rueckzahlung(c, t)), Decimal(0)),
+            "zahlungen": [{"id": t.id, "datum": t.buchungsdatum, "betrag": t.betrag, "rueckzahlung": ist_rueckzahlung(c, t),
                            "verwendungszweck": t.verwendungszweck, "konto_name": namen.get(t.account_id)}
                           for t in zahlungen]}
 

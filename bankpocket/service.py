@@ -420,9 +420,17 @@ def _bisheriger_vertrag(d, by_obj: dict, nach_id: dict[int, ContractRow]) -> Con
     return nach_id.get(cid) if anzahl * 2 > len(d.transaktionen) else None
 
 
+def ist_rueckzahlung(c: ContractRow, r: TransactionRow) -> bool:
+    """Geld, das von einem Ausgaben-Vertrag zurückkam (Erstattung): gehört zum Vertrag, ist aber keine Zahlung –
+    es ändert weder Termin noch erwarteten Betrag."""
+    return bool(r.rueckzahlung) and r.betrag > 0 and c.typ == "ausgabe"
+
+
 def zahlung_anrechnen(c: ContractRow, r: TransactionRow) -> None:
     """Eine spätere Zahlung zählt für den Vertrag: letzte Zahlung, nächster Termin und – wenn der Betrag in etwa
     passt – der neue erwartete Betrag. Eine einmalig ganz andere Summe (Gutschrift, Nachzahlung) ändert ihn nicht."""
+    if ist_rueckzahlung(c, r):
+        return
     if c.letzte_zahlung and r.buchungsdatum <= c.letzte_zahlung:
         return
     c.letzte_zahlung = r.buchungsdatum
@@ -458,7 +466,8 @@ def _zahlungen_nachfuehren(vertraege: list[ContractRow], rows: list[TransactionR
     for c in vertraege:
         if not c.letzte_zahlung:
             continue
-        meine = sorted(zugeordnet.get(c.id, []), key=lambda r: r.buchungsdatum)
+        meine = sorted((r for r in zugeordnet.get(c.id, []) if not ist_rueckzahlung(c, r)),
+                       key=lambda r: r.buchungsdatum)
         for r in meine:
             zahlung_anrechnen(c, r)
         if c in gueltig:
@@ -499,7 +508,8 @@ def _eigene_vertraege_fuellen(session: Session, eigene: list[ContractRow], by_ob
     for c in eigene:
         if c.muster or c.entfernt:
             continue
-        zugeordnet = [(t, r) for t, r in ((t, by_obj[id(t)]) for t in txs) if r.contract_id == c.id]
+        zugeordnet = [(t, r) for t, r in ((t, by_obj[id(t)]) for t in txs)
+                      if r.contract_id == c.id and not ist_rueckzahlung(c, r)]
         if zugeordnet:
             c.muster = muster(max(zugeordnet, key=lambda p: p[1].buchungsdatum)[0])
     for c in eigene:
@@ -511,7 +521,8 @@ def _eigene_vertraege_fuellen(session: Session, eigene: list[ContractRow], by_ob
                 r.contract_id = c.id
                 if c.kategorie not in FALLBACK.values():
                     r.kategorie = r.kategorie or c.kategorie
-        meine = sorted((r for r in passend if r.contract_id == c.id), key=lambda r: r.buchungsdatum)
+        meine = sorted((r for r in passend if r.contract_id == c.id and not ist_rueckzahlung(c, r)),
+                       key=lambda r: r.buchungsdatum)
         if meine:
             c.vorkommen = len({r.buchungsdatum for r in meine})
             if not c.letzte_zahlung or meine[-1].buchungsdatum >= c.letzte_zahlung:

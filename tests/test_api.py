@@ -896,3 +896,49 @@ def test_konto_loeschen_nennt_folgen_und_zusammenfuehren_behaelt_alles(client):
         assert (g.hash, g.kategorie, g.contract_id) == ("vom-abruf", kategorie_vorher, vertrag_vorher)
     # die Verträge sind noch da und aktiv
     assert client.get(f"/api/accounts/{neu}/folgen").json()["vertraege"] == folgen["vertraege"]
+
+
+def test_rueckzahlung_gehoert_zum_vertrag_ohne_ihn_zu_verschieben(client):
+    """Eine Erstattung des Anbieters wird am Vertrag eingetragen: sie steht bei den Zahlungen und mindert die
+    Kosten, ändert aber weder letzte Zahlung noch erwarteten Betrag."""
+    acc = make_account(client)
+    upload(client, acc, csv_rows(
+        "28.09.2026;28.09.2026;Musterfirma AG;Gutschrift;Gehalt September;900,00;EUR;2.500,00;EUR",
+        "28.08.2026;28.08.2026;Musterfirma AG;Gutschrift;Gehalt August;900,00;EUR;2.500,00;EUR",
+        "28.07.2026;28.07.2026;Musterfirma AG;Gutschrift;Gehalt Juli;900,00;EUR;2.500,00;EUR",
+        "29.09.2026;29.09.2026;Streamflix GmbH;Gutschrift;Erstattung Abo;900,00;EUR;5,00;EUR",
+        "15.09.2026;15.09.2026;Streamflix GmbH;Lastschrift;Abo Mandatsref: MR-100;900,00;EUR;-12,99;EUR",
+        "15.08.2026;15.08.2026;Streamflix GmbH;Lastschrift;Abo Mandatsref: MR-100;900,00;EUR;-12,99;EUR",
+        "15.07.2026;15.07.2026;Streamflix GmbH;Lastschrift;Abo Mandatsref: MR-100;900,00;EUR;-12,99;EUR"))
+    vertraege_bestaetigen(client)
+    vertrag = _vertrag(client, "Streamflix")
+    vorher = client.get(f"/api/contracts/{vertrag['id']}").json()
+    assert len(vorher["zahlungen"]) == 3 and vorher["rueckzahlungen"] == 0
+    # die Auswahl „Rückzahlung eintragen“ kennt nur Geldeingänge
+    eingaenge = client.get("/api/buchungen", params={"eingaenge": True}).json()["buchungen"]
+    assert [b["betrag"] for b in eingaenge if b["betrag"] < 100] == [5]
+    erstattung = next(b for b in eingaenge if b["betrag"] == 5)
+    # ein Geldeingang, der keine Rückzahlung ist, gehört nicht zu einem Ausgaben-Vertrag
+    r = client.patch(f"/api/buchungen/{erstattung['id']}", json={"contract_id": vertrag["id"]})
+    assert r.status_code == 400
+    r = client.patch(f"/api/buchungen/{erstattung['id']}",
+                     json={"rueckzahlung": True, "contract_id": vertrag["id"], "kategorie": vorher["kategorie"]})
+    assert r.status_code == 200 and r.json()["vertrag"]["id"] == vertrag["id"]
+    nachher = client.get(f"/api/contracts/{vertrag['id']}").json()
+    assert [(z["betrag"], z["rueckzahlung"]) for z in nachher["zahlungen"]] == [
+        (5, True), (-12.99, False), (-12.99, False), (-12.99, False)]
+    assert (nachher["rueckzahlungen"], nachher["gezahlt_gesamt"]) == (5, -33.97)
+    for feld in ("letzte_zahlung", "naechste_faelligkeit", "betrag", "vorkommen", "turnus"):
+        assert nachher[feld] == vorher[feld], feld
+    # auch ein späterer Abgleich ändert daran nichts
+    upload(client, acc, csv_rows("15.10.2026;15.10.2026;Streamflix GmbH;Lastschrift;Abo Mandatsref: MR-100;900,00;EUR;-12,99;EUR"))
+    nach_abgleich = client.get(f"/api/contracts/{vertrag['id']}").json()
+    assert nach_abgleich["betrag"] == vorher["betrag"] and len(nach_abgleich["zahlungen"]) == 5
+    # in „vom Gehalt verfügbar“ mindert die Rückzahlung die Kosten der Verträge, nicht die der sonstigen Ausgaben
+    erst = client.get("/api/gehalt/buchungen", params={"art": "vertraege"}).json()["buchungen"]
+    assert 5 in [b["betrag"] for b in erst]
+    # Rückzahlung zurücknehmen: sie zählt wieder als Einnahme und gehört nicht mehr zum Vertrag
+    client.patch(f"/api/buchungen/{erstattung['id']}", json={"rueckzahlung": False})
+    assert client.get(f"/api/buchungen/{erstattung['id']}").json()["vertrag"] is None
+    assert len(client.get(f"/api/contracts/{vertrag['id']}").json()["zahlungen"]) == 4
+

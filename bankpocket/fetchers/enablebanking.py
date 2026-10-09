@@ -215,12 +215,37 @@ class EnableBankingSource:
             log.warning("Enable Banking lehnt die Sitzung ab (%s): %s", e.status, e)
             raise FetchError("Die Bank hat die Freigabe nicht bestätigt (der Code ist ungültig oder abgelaufen). "
                              f"Meldung von {e}") from e
+        konten = self._konten_der_sitzung(s)
+        if not konten and s.get("session_id"):  # manche Banken nennen die Konten erst auf Nachfrage
+            try:
+                s = {**s, **self._anfrage("GET", f"/sessions/{s['session_id']}")}
+                konten = self._konten_der_sitzung(s)
+            except FehlerAntwort as e:
+                log.warning("Enable Banking: Sitzung nicht abrufbar (%s)", e.status)
+        if not konten:
+            # nur die Form der Antwort nennen, nie Inhalte – die Meldung erscheint in der App
+            log.warning("Enable Banking: %s lieferte keine Konten (Felder: %s)", self.bank_name, ", ".join(sorted(s)))
+            raise FetchError(
+                f"Enable Banking hat nach der Freigabe bei {self.bank_name} keine Konten geliefert. Prüfe: "
+                f"Hast du bei der Bank mindestens ein Konto ausgewählt? Ist dein {self.bank_name}-Konto bei "
+                "Enable Banking verknüpft („Activate by linking accounts“)? Ist es ein Privatkonto? "
+                f"(Antwort enthielt: {', '.join(sorted(s)) or 'nichts'}.)")
         self.neu_freigegeben = True
-        return {"session_id": s.get("session_id"), "accounts": [
-            {"uid": a["uid"], "hash": a.get("identification_hash") or a["uid"], "name": a.get("name") or "",
-             "iban": (a.get("account_id") or {}).get("iban"), "currency": a.get("currency") or "EUR",
-             "typ": a.get("cash_account_type")} for a in s.get("accounts", [])],
-            "valid_until": (s.get("access") or {}).get("valid_until")}
+        return {"session_id": s.get("session_id"), "accounts": konten,
+                "valid_until": (s.get("access") or {}).get("valid_until")}
+
+    @staticmethod
+    def _konten_der_sitzung(s: dict) -> list[dict]:
+        konten = []
+        for a in s.get("accounts") or []:
+            if isinstance(a, str):  # nur die Kennung
+                a = {"uid": a}
+            if not a.get("uid"):
+                continue
+            konten.append({"uid": a["uid"], "hash": a.get("identification_hash") or a["uid"], "name": a.get("name") or "",
+                           "iban": (a.get("account_id") or {}).get("iban"), "currency": a.get("currency") or "EUR",
+                           "typ": a.get("cash_account_type")})
+        return konten
 
     def _sitzung_gueltig(self) -> bool:
         s = self.sitzung

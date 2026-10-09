@@ -17,7 +17,7 @@ from .. import logos, umbuchungen
 from ..analysen import _kategorie, ist_steuer
 from ..db import GRUPPEN, KONTOTYPEN, Account, Balance, Connection, ContractRow, Holding, Price, TransactionRow
 from ..models import Transaction
-from ..service import (_to_dataclass, account_saldo, holdings_setzen, import_transactions, konten_zusammenfuehren,
+from ..service import (_to_dataclass, account_saldo, holdings_setzen, import_transactions, ist_rueckzahlung, konten_zusammenfuehren,
                        loesch_folgen, saldo_setzen,
                        sync_contracts, zahlung_anrechnen)
 from .deps import get_ctx, get_db
@@ -404,11 +404,13 @@ def _konto_ids(s: Session, konto: int | None, gruppe: str | None) -> list[int]:
 
 @router.get("/buchungen")
 def buchungen(konto: int | None = None, gruppe: str | None = None, suche: str | None = None,
-              kategorie: str | None = None, tag: str | None = None,
+              kategorie: str | None = None, tag: str | None = None, eingaenge: bool = False,
               limit: int = Query(60, le=500), offset: int = 0, s: Session = Depends(get_db)):
     ids = _konto_ids(s, konto, gruppe)
     namen = dict(s.execute(select(Account.id, Account.name)).all())
     q = select(TransactionRow).where(TransactionRow.account_id.in_(ids))
+    if eingaenge:  # nur Geld, das hereinkam – ohne Umbuchungen zwischen eigenen Konten
+        q = q.where(TransactionRow.betrag > 0, TransactionRow.intern.is_(False))
     q = q.order_by(TransactionRow.buchungsdatum.desc(), TransactionRow.id.desc())
     wort = (suche or "").strip().lstrip("#").lower()
     if wort or kategorie or tag:
@@ -482,7 +484,7 @@ def buchung(buchung_id: int, s: Session = Depends(get_db)):
 def _buchung_detail(s: Session, t: TransactionRow) -> dict:
     acc = s.get(Account, t.account_id)
     c = s.get(ContractRow, t.contract_id) if t.contract_id else None
-    if c and not c.entfernt and c.gilt and c.typ == "ausgabe" and (c.anteil_prozent or 100) < 100 and t.betrag < 0:
+    if c and not c.entfernt and c.gilt and c.typ == "ausgabe" and (c.anteil_prozent or 100) < 100 and (t.betrag < 0 or t.rueckzahlung):
         t.mein_betrag = t.betrag * c.anteil_prozent / 100
     return {**buchung_out(t, acc.name if acc else None), "iban_gegenpartei": t.iban_gegenpartei,
             "bearbeitbar": bool(acc and acc.quelle == "manuell"),
@@ -505,7 +507,7 @@ def _kurz(s: Session, t: TransactionRow | None) -> dict | None:
 
 def _vertrag_nachfuehren(c: ContractRow, t: TransactionRow) -> None:
     """Eine zugeordnete Zahlung zählt für den Vertrag: letzte Zahlung und nächster Termin."""
-    if c.letzte_zahlung and c.letzte_zahlung >= t.buchungsdatum:
+    if ist_rueckzahlung(c, t) or (c.letzte_zahlung and c.letzte_zahlung >= t.buchungsdatum):
         return
     if c.quelle != "manuell":
         zahlung_anrechnen(c, t)
@@ -547,6 +549,10 @@ def buchung_patch(buchung_id: int, body: BuchungPatch, s: Session = Depends(get_
         if t.rueckzahlung != body.rueckzahlung and "kategorie" not in felder:
             t.kategorie = None  # die Kategorien für Einnahmen und Ausgaben sind verschieden – neu wählen
         t.rueckzahlung = body.rueckzahlung
+        if not t.rueckzahlung and t.contract_id:  # keine Rückzahlung mehr: gehört nicht länger zum Ausgaben-Vertrag
+            zugehoerig = s.get(ContractRow, t.contract_id)
+            if zugehoerig and zugehoerig.typ == "ausgabe":
+                t.contract_id = None
     if "contract_id" in felder:
         t.vertrag_fix = True  # die Erkennung ordnet diese Buchung nicht mehr um
         if body.contract_id is None:
@@ -555,9 +561,11 @@ def buchung_patch(buchung_id: int, body: BuchungPatch, s: Session = Depends(get_
             c = s.get(ContractRow, body.contract_id)
             if not c or c.entfernt:
                 raise HTTPException(404, "Vertrag nicht gefunden")
+            if c.typ == "ausgabe" and t.betrag > 0 and not t.rueckzahlung:
+                raise HTTPException(400, "Ein Geldeingang gehört nur als Rückzahlung zu einem Ausgaben-Vertrag.")
             t.contract_id = c.id
             _vertrag_nachfuehren(c, t)
-            if c.quelle == "manuell":
+            if c.quelle == "manuell" and not ist_rueckzahlung(c, t):
                 # die übrigen Zahlungen dieser Art gehören auch dazu – jetzt und bei künftigen Abrufen
                 c.muster = c.muster or muster(_to_dataclass(t))
                 sync_contracts(s, ctx.today())

@@ -274,3 +274,45 @@ def test_n26_und_revolut_sind_ueber_enable_banking_waehlbar(tmp_path, schluessel
             ("n26", "N26"), ("revolut", "Revolut")]
     for kuerzel, name in (("n26", "N26"), ("revolut", "Revolut")):
         assert EnableBankingSource(login=APP_ID, pin=pem, interaktion=None, bank=kuerzel).bank_name == name
+
+
+def _api_ohne_konten(nachfrage: list | None):
+    """Die Bank liefert nach der Freigabe zunächst keine Konten; `nachfrage` (oder nichts) beim zweiten Nachfragen."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        p = req.url.path
+        if p == "/application":
+            return httpx.Response(200, json={})
+        if p == "/aspsps":
+            return httpx.Response(200, json={"aspsps": [{"name": "Revolut", "country": "DE"}]})
+        if p == "/auth":
+            return httpx.Response(200, json={"url": "https://auth.example/start"})
+        if p == "/sessions":
+            return httpx.Response(200, json={"session_id": "s9", "accounts": [], "access": {"valid_until": "2027-01-01T00:00:00Z"}})
+        if p == "/sessions/s9":
+            return httpx.Response(200, json={"session_id": "s9", "accounts": nachfrage or []})
+        if p.endswith("/balances"):
+            return httpx.Response(200, json={"balances": []})
+        if p.endswith("/transactions"):
+            return httpx.Response(200, json={"transactions": []})
+        return httpx.Response(404, json={})
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_keine_konten_nach_der_freigabe_wird_erklaert_statt_null_konten_zu_melden(schluessel):
+    _, pem = schluessel
+    q = quelle(pem, _api_ohne_konten(None), bank="revolut")
+    q.ia.eingabe({"code": f"{REDIRECT}?code=ABC"})
+    with pytest.raises(FetchError) as e:
+        q.abrufen()
+    text = str(e.value)
+    assert "keine Konten geliefert" in text and "Revolut" in text and "Activate by linking accounts" in text
+    assert "s9" not in text  # keine Inhalte der Antwort, nur die Feldnamen
+
+
+def test_konten_die_erst_auf_nachfrage_kommen_werden_genommen(schluessel):
+    _, pem = schluessel
+    q = quelle(pem, _api_ohne_konten([{"uid": "u7", "identification_hash": "h7", "name": "Hauptkonto", "currency": "EUR",
+                                       "account_id": {"iban": "DE02100100100006820101"}}]), bank="revolut")
+    q.ia.eingabe({"code": f"{REDIRECT}?code=ABC"})
+    [konto] = q.abrufen().konten
+    assert (konto.name, konto.typ, konto.iban) == ("Hauptkonto", "giro", "DE02100100100006820101")
