@@ -23,6 +23,7 @@
 
   let verbindungen = $state<any[]>([]);
   let einst = $state<any>(null);
+  let stand = $state<{ version: string; gestartet: string } | null>(null);
   let push = $state<PushZustand | 'pruefe'>('pruefe');
   let pushArbeitet = $state(false);
   let ki = $state<any>(null);
@@ -122,6 +123,7 @@
     api('/verbindungen').then((v) => (verbindungen = v)).catch(fehler);
     api('/einstellungen').then((e) => ((einst = e), (eigeneNamen = e.eigene_namen ?? ''))).catch(fehler);
     api('/ki').then((k) => (ki = k)).catch(fehler);
+    api('/health').then((h) => (stand = h)).catch(() => {});
     push = await pushZustand();
   });
 </script>
@@ -340,5 +342,7 @@
   {#if auth.aktiv}
     <button class="knopf-sekundaer mt-8 w-full" onclick={abmelden}><LogOut size={18} /> Abmelden</button>
   {/if}
-  <p class="mt-8 text-center text-[12px] text-faint">BankPocket · läuft auf deinem eigenen Server</p>
+  <p class="mt-8 text-center text-[12px] text-faint">
+    BankPocket · läuft auf deinem eigenen Server{#if stand?.version && stand.version !== 'entwicklung'} · Version {stand.version}{#if stand.gestartet !== stand.version} (Neustart steht aus){/if}{/if}
+  </p>
 </div>

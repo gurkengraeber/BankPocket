@@ -973,3 +973,18 @@ def test_betrag_eines_vertrags_von_hand_festlegen(client):
     assert client.patch(f"/api/contracts/{vertrag['id']}", json={"betrag": "0"}).status_code == 422
     assert client.patch(f"/api/contracts/{vertrag['id']}", json={"betrag": "-5"}).status_code == 422
 
+
+
+def test_health_nennt_die_version(client, monkeypatch, tmp_path):
+    from bankpocket import version
+    assert client.get("/api/health").json()["ok"] is True
+    datei = tmp_path / "VERSION"
+    monkeypatch.setattr(version, "DATEI", datei)
+    assert version.gelesen() == "entwicklung"  # ohne Datei
+    datei.write_text("abc1234\n")
+    monkeypatch.setattr(version, "GESTARTET", "abc1234")
+    h = client.get("/api/health").json()
+    assert (h["version"], h["gestartet"]) == ("abc1234", "abc1234")
+    datei.write_text("def5678\n")  # neuer Code liegt auf der Platte, der laufende ist noch der alte
+    h = client.get("/api/health").json()
+    assert (h["version"], h["gestartet"]) == ("def5678", "abc1234")

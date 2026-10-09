@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from .. import backup
+from .. import backup, version
 from ..auth import COOKIE, SESSION_TAGE, erzeuge_token, pruefe_passwort, pruefe_token, session_secret
 from ..db import Account, KeyValue, Notice, PushSubscription, TransactionRow, kv_get
 from ..service import eigene_namen, eigene_namen_zuruecknehmen, markiere_interne_umbuchungen, sync_contracts
@@ -45,7 +45,8 @@ def angemeldet(request: Request, s: Session) -> bool:
 
 @router.get("/health")
 def health():
-    return {"ok": True}
+    # version: Stand der Dateien auf dem Server, gestartet: Stand des laufenden Codes (weicht ab: Neustart steht aus)
+    return {"ok": True, "version": version.gelesen(), "gestartet": version.GESTARTET}
 
 
 @router.get("/auth")

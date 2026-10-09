@@ -23,6 +23,7 @@ git archive HEAD | tar -x -C "$tmp"
 mkdir -p "$tmp/frontend"
 cp -r frontend/dist "$tmp/frontend/dist"
 chmod +x "$tmp"/scripts/*.sh
+echo "$stand" > "$tmp/VERSION"   # zeigt /api/health und die Einstellungen
 
 cd "$tmp"
 git init -q -b release
