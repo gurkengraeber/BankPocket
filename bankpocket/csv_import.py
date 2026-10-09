@@ -1,5 +1,8 @@
 """CSV-Import für Bank-Exporte (Standard: ING-Girokonto-Export).
 
+Neben ING (und ähnlichen Exporten) erkennt er N26 und Revolut: Komma als Trenner, Datum und Betrag
+englisch ("2026-09-15", "-12.50"), bei Revolut mit Uhrzeit, Gebühr und Status je Zeile.
+
 Das ING-Format hat einen Metadaten-Block vor der Kopfzeile, Semikolon als
 Trenner, deutsche Zahlen ("-1.234,56") und Datumsangaben (TT.MM.JJJJ).
 Spaltennamen werden über Aliase erkannt, damit auch ähnliche Exporte
@@ -18,19 +21,26 @@ from pathlib import Path
 from .models import Transaction
 
 ALIASES = {
-    "datum": ["buchung", "buchungstag", "buchungsdatum", "datum"],
+    "datum": ["buchung", "buchungstag", "buchungsdatum", "datum", "booking date", "completed date", "abschlussdatum"],
+    "datum_alt": ["started date", "startdatum"],  # Revolut: noch nicht abgeschlossene Zeilen haben nur dieses Datum
     "gegenpartei": ["auftraggeber/empfänger", "auftraggeber/empfaenger", "empfänger", "sender / empfänger",
                     "sender/empfänger", "sender / empfaenger", "empfänger/auftraggeber", "zahlungsempfänger",
                     "name zahlungsbeteiligter", "beguenstigter/zahlungspflichtiger",
-                    "begünstigter/zahlungspflichtiger", "gegenpartei"],
-    "zweck": ["verwendungszweck"],
-    "buchungstext": ["buchungstext", "umsatzart", "buchungsart"],
-    "betrag": ["betrag", "betrag (eur)", "umsatz"],
-    "iban": ["iban", "iban zahlungsbeteiligter", "kontonummer/iban"],
+                    "begünstigter/zahlungspflichtiger", "gegenpartei", "partner name", "partnername", "description",
+                    "beschreibung"],
+    "zweck": ["verwendungszweck", "payment reference", "zahlungsreferenz"],
+    "buchungstext": ["buchungstext", "umsatzart", "buchungsart", "type", "typ", "transaktionstyp"],
+    "betrag": ["betrag", "betrag (eur)", "umsatz", "amount (eur)", "amount"],
+    "iban": ["iban", "iban zahlungsbeteiligter", "kontonummer/iban", "partner iban"],
     "glaeubiger": ["gläubiger-id", "glaeubiger-id", "gläubigeridentifikationsnummer"],
     "mandat": ["mandatsreferenz", "mandat"],
-    "saldo": ["saldo", "kontostand"],
+    "saldo": ["saldo", "kontostand", "balance"],
+    "gebuehr": ["fee", "gebühr", "gebuehr"],  # Revolut: wird vom Betrag abgezogen
+    "status": ["state", "status"],
 }
+# Zeilen in diesen Zuständen sind keine echten Buchungen (Revolut: PENDING, REVERTED, DECLINED, FAILED)
+NICHT_GEBUCHT = {"pending", "reverted", "declined", "failed", "ausstehend", "storniert", "abgelehnt", "fehlgeschlagen",
+                 "zurückgebucht", "zurueckgebucht"}
 
 _RE_CID = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{3}\d{8,})\b")
 _RE_MREF = re.compile(r"Mandats?-?ref(?:erenz)?\.?:?\s*([A-Za-z0-9\-_/.]{3,})", re.I)
@@ -40,8 +50,10 @@ _RE_IBAN = re.compile(r"\b([A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){3,7}\s?[A-Z0-9]{0,4})
 
 def parse_amount(text: str) -> Decimal:
     t = text.strip().replace("€", "").replace(" ", "")
-    if "," in t:
-        t = t.replace(".", "").replace(",", ".")
+    if "," in t and "." in t:  # beides: das letzte Zeichen ist das Dezimalzeichen ("1.234,56" bzw. "1,234.56")
+        t = t.replace(".", "").replace(",", ".") if t.rfind(",") > t.rfind(".") else t.replace(",", "")
+    elif "," in t:
+        t = t.replace(",", ".")
     try:
         return Decimal(t)
     except InvalidOperation as e:
@@ -49,7 +61,7 @@ def parse_amount(text: str) -> Decimal:
 
 
 def parse_date(text: str) -> date:
-    t = text.strip()
+    t = text.strip().replace("T", " ").split(" ")[0]  # Uhrzeit abschneiden ("2026-09-15 10:23:45")
     for fmt in ("%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d"):
         try:
             return datetime.strptime(t, fmt).date()
@@ -77,8 +89,18 @@ def _decode(raw: bytes) -> str:
 def _find_header(lines: list[str], delimiter: str) -> int:
     for i, line in enumerate(lines):
         cells = [c.strip().strip('"').lower() for c in line.split(delimiter)]
-        if any(c in ALIASES["datum"] for c in cells) and any(c in ALIASES["betrag"] for c in cells):
+        if any(c in ALIASES["datum"] + ALIASES["datum_alt"] for c in cells) and any(c in ALIASES["betrag"] for c in cells):
             return i
+    raise ValueError("Keine Kopfzeile mit Datum- und Betrag-Spalte gefunden")
+
+
+def _kopfzeile(lines: list[str], delimiter: str) -> tuple[str, int]:
+    """Gewünschtes Trennzeichen zuerst; passt es nicht (N26 und Revolut trennen mit Komma), das andere probieren."""
+    for d in dict.fromkeys((delimiter, ",", ";")):
+        try:
+            return d, _find_header(lines, d)
+        except ValueError:
+            continue
     raise ValueError("Keine Kopfzeile mit Datum- und Betrag-Spalte gefunden")
 
 
@@ -89,7 +111,7 @@ def load_transactions(path: str | Path, delimiter: str = ";") -> list[Transactio
 def parse_transactions(raw: bytes, delimiter: str = ";") -> list[Transaction]:
     text = _decode(raw)
     lines = text.splitlines()
-    start = _find_header(lines, delimiter)
+    delimiter, start = _kopfzeile(lines, delimiter)
     reader = csv.reader(io.StringIO("\n".join(lines[start:])), delimiter=delimiter)
     raw_header = [h.strip() for h in next(reader)]
     header = [h.lower() for h in raw_header]
@@ -111,6 +133,8 @@ def parse_transactions(raw: bytes, delimiter: str = ";") -> list[Transaction]:
             i = idx[key]
             return row[i].strip() if i is not None and i < len(row) else ""
 
+        if get("status").lower() in NICHT_GEBUCHT:
+            continue
         zweck = get("zweck")
         cid, mref = get("glaeubiger"), get("mandat")
         if not (cid and mref):
@@ -121,8 +145,8 @@ def parse_transactions(raw: bytes, delimiter: str = ";") -> list[Transaction]:
             m = _RE_IBAN.search(zweck)
             iban = m.group(1).replace(" ", "") if m else ""
         out.append(Transaction(
-            buchungsdatum=parse_date(get("datum")),
-            betrag=parse_amount(get("betrag")),
+            buchungsdatum=parse_date(get("datum") or get("datum_alt")),
+            betrag=parse_amount(get("betrag")) - (parse_amount(get("gebuehr")) if get("gebuehr") else 0),
             gegenpartei=get("gegenpartei"),
             verwendungszweck=zweck,
             iban_gegenpartei=iban.replace(" ", ""),

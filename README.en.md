@@ -30,7 +30,7 @@ The screenshots show the bundled demo data (all made up).
   and around 2,000 more German banks), four times a day
 - **Approval in your banking app** (ING app, SecurePlus app) – confirm once roughly every 90 days
 - **Trade Republic** (cash account + portfolio with gain/loss since purchase and value history per position),
-  **Bank Norwegian** (credit card via Enable Banking), **Binance** (crypto in euros) and **Splitwise**
+  **Bank Norwegian** (credit card), **N26** and **Revolut** (all three via Enable Banking), **Binance** (crypto in euros) and **Splitwise**
 - **Budgets** per category with a warning at 80 % and a projection to the end of the month
 - **Overview** with account groups, balances, total and **“available from your salary”**: detects when your
   salary arrives (fixed day or e.g. last banking day, with weekends and public holidays), shows what is left per
@@ -128,7 +128,7 @@ history as the source provides.
 | **ING, Consorsbank** | Enter credentials → confirm in the ING or SecurePlus app if the bank asks. Consorsbank: the login is the account number followed by `001`. Both only return the last 90 days |
 | **Sparkasse, Volksbank, DKB & co.** | Search the bank by name, city, BLZ or IBAN → enter credentials → confirm in the banking app (S-pushTAN, SecureGo plus, DKB app …) |
 | **Trade Republic** | Phone number with country code (+49 …) + PIN → confirm the login in the Trade Republic app; if two-factor login with an authenticator is set up there, enter the code first, then confirm in the app. Unofficial interface (pytr) – may break when Trade Republic changes something |
-| **Bank Norwegian** | Register a free app for “Production” on enablebanking.com, enter the address shown in BankPocket as redirect URL, activate your own account via “Activate by linking accounts”, then paste the application ID and the content of the `.pem` file into BankPocket. Without HTTPS you end up on an error page after approval – copy its address into BankPocket. Approval roughly every 180 days |
+| **Bank Norwegian, N26, Revolut** | Register a free app for “Production” on enablebanking.com, enter the address shown in BankPocket as redirect URL, activate your own account via “Activate by linking accounts”, then paste the application ID and the content of the `.pem` file into BankPocket. Without HTTPS you end up on an error page after approval – copy its address into BankPocket. Approval roughly every 90 to 180 days. The same application covers all three banks, so the application ID and key are entered once. N26 and Revolut have not been tried with real accounts yet – if Enable Banking does not offer a bank, use the CSV export (see below) |
 | **Binance** | Create a read-only key (Profile → API Management, “Reading” only), paste key + secret |
 | **Splitwise** | Without Pro: create it as an account and type in the current balance via “Stand eintragen”. With Splitwise Pro: register an app on secure.splitwise.com/apps and paste the “API key” |
 
@@ -243,9 +243,11 @@ Encrypting the server's disk as well protects you if the server is stolen.
 
 - **Manual accounts** (cash, deposits & debts, crypto): *Konto hinzufügen → Manuelles Konto*, add transactions
   or enter the current balance (each with a date). Self-entered transactions can be edited and deleted later
-- **CSV import** (PayPal, Norwegian, ING and Consorsbank exports): *Konto hinzufügen → Kontoauszug importieren*.
+- **CSV import** (PayPal, Norwegian, ING, Consorsbank, N26 and Revolut exports): *Konto hinzufügen → Kontoauszug importieren*.
   Column names are detected automatically; more aliases in `bankpocket/csv_import.py`. If the statement contains
-  no balance, add it via “Stand eintragen” – only then does the account count towards your net worth
+  no balance, add it via “Stand eintragen” – only then does the account count towards your net worth.
+  N26 and Revolut separate with commas (detected even if the default “;” is selected). For Revolut the fee is
+  added to the amount and pending or reverted rows are skipped; export one euro account per file
 - **Portfolio overview as CSV** (e.g. Consorsbank): same way, as a new account. It becomes a portfolio with all
   positions, purchase prices and gain/loss since purchase
 

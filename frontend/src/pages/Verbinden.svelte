@@ -21,7 +21,7 @@
   };
 
   // Banken über Enable Banking (Kürzel wie im Backend)
-  const EB_BANKEN: Record<string, string> = { norwegian: 'Bank Norwegian', consorsbank: 'Consorsbank' };
+  const EB_BANKEN: Record<string, string> = { norwegian: 'Bank Norwegian', consorsbank: 'Consorsbank', n26: 'N26', revolut: 'Revolut' };
   const ebBank = EB_BANKEN[route.query.get('bank') ?? ''] ? route.query.get('bank')! : 'norwegian';
   const EB_NAME = EB_BANKEN[ebBank];
   // Anleitung, wenn Enable Banking schon für eine andere Bank eingerichtet ist (Zugangsdaten werden mitgenutzt)
@@ -68,7 +68,7 @@
         'Application-ID und den gesamten Inhalt der .pem-Datei hier einfügen.',
       ],
       hinweis:
-        `Enable Banking ist ein zugelassener Kontoinformationsdienst. Gleich öffnest du einen Link und bestätigst den Zugriff bei ${EB_NAME} – auf dem Handy auch direkt in der Banking-App. Danach etwa alle 180 Tage erneut. BankPocket kann nur lesen.`,
+        `Enable Banking ist ein zugelassener Kontoinformationsdienst. Gleich öffnest du einen Link und bestätigst den Zugriff bei ${EB_NAME} – auf dem Handy auch direkt in der Banking-App. Danach je nach Bank alle 90 bis 180 Tage erneut. BankPocket kann nur lesen.`,
     },
     splitwise: {
       name: 'Splitwise',

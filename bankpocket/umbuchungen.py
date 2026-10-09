@@ -19,7 +19,7 @@ SICHER, FRAGEN = 80, 55  # ab hier automatisch paaren bzw. nachfragen
 NEUTRAL = {*FALLBACK.values(), "Sparen", "Bargeld", "Umbuchung"}
 _HINWEISE = ("umbuchung", "übertrag", "uebertrag", "eigene", "einzahlung", "auszahlung", "transfer", "payment")
 _QUELLE_NAME = {"trade_republic": "trade republic", "norwegian": "norwegian", "consorsbank": "consors", "ing": "ing",
-                "paypal": "paypal", "binance": "binance"}
+                "paypal": "paypal", "binance": "binance", "n26": "n26", "revolut": "revolut"}
 
 
 def _abgelehnt(t: TransactionRow) -> set[int]:

@@ -253,3 +253,24 @@ def test_bank_der_verbindung_bestimmt_die_bank_bei_enable_banking(schluessel):
     q = EnableBankingSource(login=APP_ID, pin=pem, interaktion=None, bank="consorsbank")
     assert q.bank_name == "Consorsbank"
     assert EnableBankingSource(login=APP_ID, pin=pem, interaktion=None, bank="andere").bank_name == "Bank Norwegian"
+
+
+def test_n26_und_revolut_sind_ueber_enable_banking_waehlbar(tmp_path, schluessel):
+    from fastapi.testclient import TestClient
+
+    from bankpocket.api import create_app
+    from bankpocket.config import Settings
+    from bankpocket.db import Connection
+
+    _, pem = schluessel
+    app = create_app(Settings(data_dir=tmp_path, scheduler=False, auth=False))
+    ctx = app.state.ctx
+    ctx.manager.starten = lambda conn_id, **kw: True
+    c = TestClient(app)
+    c.post("/api/verbindungen", json={"art": "enablebanking", "login": APP_ID, "pin": pem})
+    ids = {b: c.post("/api/verbindungen", json={"art": "enablebanking", "bank": b}).json()["id"] for b in ("n26", "revolut")}
+    with ctx.session_factory() as s:
+        assert [(s.get(Connection, i).bank, s.get(Connection, i).name) for i in ids.values()] == [
+            ("n26", "N26"), ("revolut", "Revolut")]
+    for kuerzel, name in (("n26", "N26"), ("revolut", "Revolut")):
+        assert EnableBankingSource(login=APP_ID, pin=pem, interaktion=None, bank=kuerzel).bank_name == name

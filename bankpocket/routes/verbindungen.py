@@ -30,7 +30,7 @@ BANK_FUER_QUELLE = {"enablebanking": "norwegian"}
 
 class VerbindungIn(BaseModel):
     art: str = "fints"  # fints | trade_republic | binance | splitwise | enablebanking
-    # bei fints: ing | consorsbank | andere (dann über BLZ aus der Bankliste); bei enablebanking: norwegian | consorsbank
+    # bei fints: ing | consorsbank | andere (dann über BLZ aus der Bankliste); bei enablebanking: norwegian | consorsbank | n26 | revolut
     bank: str | None = None
     login: str = ""
     pin: str = ""  # bei enablebanking leer, wenn die Zugangsdaten einer bestehenden Verbindung mitgenutzt werden

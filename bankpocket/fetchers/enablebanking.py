@@ -1,4 +1,4 @@
-"""Bank Norwegian (und weitere Banken) über Enable Banking, die PSD2-Schnittstelle für Privatpersonen.
+"""Bank Norwegian, N26, Revolut (und weitere Banken) über Enable Banking, die PSD2-Schnittstelle für Privatpersonen.
 
 Einrichtung bei Enable Banking (kostenlos, nur eigene Konten): eine Anwendung für „Production“ registrieren,
 Application-ID und privaten Schlüssel (PEM) in BankPocket eintragen, die Adresse von BankPocket als Redirect-URL
@@ -42,7 +42,7 @@ SITZUNG_VORBEI = ("SESSION", "EXPIRED", "CONSENT", "REVOKED", "CLOSED", "ACCESS"
 
 
 # Banken, die BankPocket über Enable Banking anbietet (Kürzel der Verbindung → Name bei Enable Banking)
-BANKEN = {"norwegian": "Bank Norwegian", "consorsbank": "Consorsbank"}
+BANKEN = {"norwegian": "Bank Norwegian", "consorsbank": "Consorsbank", "n26": "N26", "revolut": "Revolut"}
 
 
 def _b64(daten: bytes) -> str:
