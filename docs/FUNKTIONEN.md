@@ -63,7 +63,12 @@ Was BankPocket wie rechnet und wo du es findest – zum Nachschlagen. Einrichtun
   (in Analysen, Budgets, Bereichen und bei „frei verfügbar“). Gehört das Geld zu einem Vertrag (Erstattung des
   Anbieters), geht es auch von dort: auf der Vertragsseite **„Rückzahlung eintragen“** und den Geldeingang antippen.
   Er steht dann bei den Zahlungen des Vertrags und mindert dessen Kosten („letzte 12 Monate“, gesamt, „vom Gehalt
-  verfügbar“), ändert aber nichts an letzter Zahlung, erwartetem Betrag und Rhythmus.
+  verfügbar“). Der Betrag des Vertrags ist dann, was nach der letzten Zahlung unterm Strich gezahlt wurde (72 € minus
+  42,10 € Erstattung = 29,90 €); die nächste Zahlung ohne Rückzahlung setzt ihn wieder auf ihren eigenen Betrag.
+  Termin und Rhythmus bleiben unberührt.
+- **Betrag von Hand ändern**: Auf der Vertragsseite den Betrag antippen (Stift). Vorschläge zum Antippen: zuletzt
+  gezahlt, nach Rückzahlung. Ein eigener Betrag bleibt, auch wenn sich die Abbuchung ändert, bis man ihn über
+  „Wieder automatisch erkennen“ zurückgibt. Er zählt überall (Monats- und Jahreskosten, Kalender, Analysen).
 - **Nicht berücksichtigen** (Schalter an jeder Buchung): Die Buchung zählt nirgends mit – weder bei „frei
   verfügbar“ noch in Analysen und Budgets (z. B. Auslagen, die du zurückbekommst).
 - **Gekündigt**: Auf der Vertragsseite „Ist gekündigt“ antippen – der Vertrag endet zum berechneten Termin, es wird

@@ -174,6 +174,7 @@ class ContractRow(Base):
     entfernt: Mapped[bool] = mapped_column(Boolean, default=False)  # vom Nutzer entfernt, nicht neu anlegen
     nicht_mehr_erkannt: Mapped[bool] = mapped_column(Boolean, default=False)
     bestaetigt: Mapped[bool] = mapped_column(Boolean, default=False)  # Nutzer hat „ja, das ist ein Vertrag“ gesagt
+    betrag_fix: Mapped[bool] = mapped_column(Boolean, default=False)  # Betrag vom Nutzer festgelegt – bleibt so
     # Selbst angelegte Verträge: Woran passende Buchungen erkannt werden (siehe contracts.muster)
     muster: Mapped[str | None] = mapped_column(String(300))
     # Vom Nutzer gepflegte Vertragsdaten: was es ist, bis wann es läuft und wie man herauskommt

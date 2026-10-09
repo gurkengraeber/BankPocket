@@ -928,8 +928,17 @@ def test_rueckzahlung_gehoert_zum_vertrag_ohne_ihn_zu_verschieben(client):
     assert [(z["betrag"], z["rueckzahlung"]) for z in nachher["zahlungen"]] == [
         (5, True), (-12.99, False), (-12.99, False), (-12.99, False)]
     assert (nachher["rueckzahlungen"], nachher["gezahlt_gesamt"]) == (5, -33.97)
-    for feld in ("letzte_zahlung", "naechste_faelligkeit", "betrag", "vorkommen", "turnus"):
+    for feld in ("letzte_zahlung", "naechste_faelligkeit", "vorkommen", "turnus"):
         assert nachher[feld] == vorher[feld], feld
+    # der Betrag des Vertrags ist, was nach der Rückzahlung unterm Strich gezahlt wurde: 12,99 − 5,00
+    assert (nachher["betrag"], nachher["letzte_zahlung_betrag"], nachher["letzte_zahlung_netto"]) == (-7.99, -12.99, -7.99)
+    assert abs(nachher["jaehrlich"] - 7.99 * 12) < 0.01
+    # die Rückzahlung wieder lösen und neu eintragen: der Betrag folgt
+    client.patch(f"/api/buchungen/{erstattung['id']}", json={"rueckzahlung": False})
+    assert client.get(f"/api/contracts/{vertrag['id']}").json()["betrag"] == -12.99
+    client.patch(f"/api/buchungen/{erstattung['id']}",
+                 json={"rueckzahlung": True, "contract_id": vertrag["id"], "kategorie": vorher["kategorie"]})
+    assert client.get(f"/api/contracts/{vertrag['id']}").json()["betrag"] == -7.99
     # auch ein späterer Abgleich ändert daran nichts
     upload(client, acc, csv_rows("15.10.2026;15.10.2026;Streamflix GmbH;Lastschrift;Abo Mandatsref: MR-100;900,00;EUR;-12,99;EUR"))
     nach_abgleich = client.get(f"/api/contracts/{vertrag['id']}").json()
@@ -941,4 +950,26 @@ def test_rueckzahlung_gehoert_zum_vertrag_ohne_ihn_zu_verschieben(client):
     client.patch(f"/api/buchungen/{erstattung['id']}", json={"rueckzahlung": False})
     assert client.get(f"/api/buchungen/{erstattung['id']}").json()["vertrag"] is None
     assert len(client.get(f"/api/contracts/{vertrag['id']}").json()["zahlungen"]) == 4
+
+
+def test_betrag_eines_vertrags_von_hand_festlegen(client):
+    acc = make_account(client)
+    upload(client, acc, FIXTURE)
+    vertraege_bestaetigen(client)
+    vertrag = _vertrag(client, "Streamflix")
+    assert (vertrag["betrag"], vertrag["betrag_fix"]) == (-12.99, False)
+    r = client.patch(f"/api/contracts/{vertrag['id']}", json={"betrag": "9.99"}).json()
+    assert (r["betrag"], r["betrag_fix"], r["betrag_gestiegen"]) == (-9.99, True, False)
+    assert abs(r["monatlich"] - 9.99) < 0.01 and abs(r["jaehrlich"] - 9.99 * 12) < 0.01
+    # neue Buchungen und Abgleiche lassen den festgelegten Betrag stehen
+    upload(client, acc, csv_rows("15.10.2026;15.10.2026;Streamflix GmbH;Lastschrift;Abo Mandatsref: MR-100 "
+                                 "Gläubiger-ID: DE98ZZZ09999999999;900,00;EUR;-14,99;EUR"))
+    d = client.get(f"/api/contracts/{vertrag['id']}").json()
+    assert (d["betrag"], d["betrag_fix"], d["letzte_zahlung"]) == (-9.99, True, "2026-10-15")
+    # „automatisch“: wieder aus den Buchungen
+    r = client.patch(f"/api/contracts/{vertrag['id']}", json={"betrag_automatisch": True}).json()
+    assert r["betrag_fix"] is False and r["betrag"] != -9.99
+    # Null und Negatives sind keine Beträge
+    assert client.patch(f"/api/contracts/{vertrag['id']}", json={"betrag": "0"}).status_code == 422
+    assert client.patch(f"/api/contracts/{vertrag['id']}", json={"betrag": "-5"}).status_code == 422
 

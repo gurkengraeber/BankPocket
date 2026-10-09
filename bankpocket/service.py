@@ -372,10 +372,12 @@ def sync_contracts(session: Session, today: date | None = None) -> SyncErgebnis:
         if not row.bearbeitet:
             row.name, row.kategorie = d.name, d.kategorie
         row.turnus, row.typ, row.methode = d.turnus, d.typ, d.methode
-        row.erwarteter_betrag, row.vorkommen, row.sicherheit = d.erwarteter_betrag, d.vorkommen, d.sicherheit
+        row.vorkommen, row.sicherheit = d.vorkommen, d.sicherheit
+        if not row.betrag_fix:  # einen vom Nutzer festgelegten Betrag überschreibt die Erkennung nicht
+            row.erwarteter_betrag = d.erwarteter_betrag
+            row.betrag_gestiegen, row.vorheriger_betrag = d.betrag_gestiegen, d.vorheriger_betrag
         row.letzte_zahlung = letzte
         row.naechste_faelligkeit = d.naechste_faelligkeit
-        row.betrag_gestiegen, row.vorheriger_betrag = d.betrag_gestiegen, d.vorheriger_betrag
         row.nicht_mehr_erkannt = False
         session.flush()
         for t in d.transaktionen:
@@ -392,6 +394,8 @@ def sync_contracts(session: Session, today: date | None = None) -> SyncErgebnis:
     session.flush()
     aktive = [c for c in existing.values() if not c.entfernt]
     _zahlungen_nachfuehren(aktive, rows, by_obj, txs)
+    for c in aktive:
+        netto_nachfuehren(session, c)
     # teurer geworden mit einer Zahlung, die seit dem letzten Abgleich dazugekommen ist
     ergebnis.erhoeht = [c for c in aktive if c.betrag_gestiegen and c.vorheriger_betrag is not None
                         and c.id in letzte_bisher and letzte_bisher[c.id] != c.letzte_zahlung]
@@ -436,6 +440,8 @@ def zahlung_anrechnen(c: ContractRow, r: TransactionRow) -> None:
     c.letzte_zahlung = r.buchungsdatum
     c.naechste_faelligkeit = naechster_termin(r.buchungsdatum, c.turnus)
     c.vorkommen = (c.vorkommen or 0) + 1
+    if c.betrag_fix:  # der Betrag steht fest – nur Termine laufen weiter
+        return
     alt, neu = abs(c.erwarteter_betrag), abs(r.betrag)
     vorher, c.betrag_gestiegen, c.vorheriger_betrag = c.erwarteter_betrag, False, None
     if (c.kategorie in SCHWANKENDE_ERTRAEGE or c.kategorie == "Lohn / Gehalt"
@@ -444,6 +450,37 @@ def zahlung_anrechnen(c: ContractRow, r: TransactionRow) -> None:
     c.erwarteter_betrag = r.betrag
     if abs(neu - alt) > alt * PRICE_CHANGE_THRESHOLD:
         c.betrag_gestiegen, c.vorheriger_betrag = neu > alt, vorher
+
+
+def netto_nachfuehren(session: Session, c: ContractRow, zuruecksetzen: bool = False) -> None:
+    """Rückzahlungen gehören zu der Zahlung, auf die sie folgen: Kam nach der letzten Zahlung Geld zurück, ist der
+    Betrag des Vertrags, was unterm Strich gezahlt wurde (72 € minus 42,10 € Erstattung = 29,90 €). Die nächste
+    Zahlung ohne Rückzahlung setzt ihn wieder auf ihren eigenen Betrag. Ein vom Nutzer festgelegter Betrag bleibt."""
+    if c.betrag_fix or c.typ != "ausgabe" or c.entfernt:
+        return
+    zeilen = list(session.scalars(select(TransactionRow).where(TransactionRow.contract_id == c.id)
+                                  .order_by(TransactionRow.buchungsdatum, TransactionRow.id)))
+    zahlungen = [r for r in zeilen if r.betrag < 0 and not ist_rueckzahlung(c, r)]
+    if not zahlungen:
+        return
+    netto = {r.id: r.betrag for r in zahlungen}
+    for rz in (r for r in zeilen if ist_rueckzahlung(c, r)):
+        davor = [z for z in zahlungen if z.buchungsdatum <= rz.buchungsdatum]
+        if davor:
+            netto[davor[-1].id] += rz.betrag
+    letzte = zahlungen[-1]
+    if netto[letzte.id] == letzte.betrag:  # nach der letzten Zahlung kam nichts zurück
+        if zuruecksetzen and c.quelle == "manuell":  # die Erkennung stellt den Betrag bei erkannten Verträgen selbst zurück
+            c.erwarteter_betrag = letzte.betrag
+        return
+    if netto[letzte.id] >= 0:  # mehr zurück als gezahlt: der Betrag wird nicht zum Guthaben
+        return
+    vorher = netto[zahlungen[-2].id] if len(zahlungen) > 1 else None
+    c.erwarteter_betrag = netto[letzte.id]
+    if vorher and abs(netto[letzte.id] - vorher) > abs(vorher) * PRICE_CHANGE_THRESHOLD:
+        c.betrag_gestiegen, c.vorheriger_betrag = abs(netto[letzte.id]) > abs(vorher), vorher
+    else:
+        c.betrag_gestiegen, c.vorheriger_betrag = False, None
 
 
 def _zahlungen_nachfuehren(vertraege: list[ContractRow], rows: list[TransactionRow], by_obj: dict,

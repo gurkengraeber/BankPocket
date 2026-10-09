@@ -49,6 +49,8 @@ class ContractPatch(BaseModel):
     versichert: Literal["", "ich", "partner", "familie", "haushalt"] | None = None
     selbstbeteiligung: Decimal | None = Field(None, ge=0, le=100000)
     kontakt: str | None = Field(None, max_length=200)
+    betrag: Decimal | None = Field(None, gt=0, le=1000000)  # Betrag je Zahlung (ohne Vorzeichen), vom Nutzer festgelegt
+    betrag_automatisch: bool | None = None  # true: wieder aus den Buchungen erkennen
 
 
 # Felder, die sich auch wieder leeren lassen (None = „keine Angabe“)
@@ -120,6 +122,7 @@ def contract_out(c: ContractRow, heute: date) -> dict:
         "vertragsnummer": c.vertragsnummer or "", "notiz": c.notiz or "", "kuendigung": kuendigung(c, heute),
         "verwaltet_ueber": c.verwaltet_ueber or "", "verwaltet_name": c.verwaltet_name or "",
         "versichert": c.versichert or "", "selbstbeteiligung": c.selbstbeteiligung, "kontakt": c.kontakt or "",
+        "betrag_fix": bool(c.betrag_fix),
         "gekuendigt_zum": c.gekuendigt_zum, "jaehrlich": c.monatlich * 12, "anteil_prozent": c.anteil_prozent or 100, "mein_betrag": c.mein_betrag,
     }
 
@@ -180,7 +183,14 @@ def contract_detail(contract_id: int, s: Session = Depends(get_db), ctx=Depends(
     heute = ctx.today()
     vor_einem_jahr = add_months(heute, -12)
     anteil = Decimal(c.anteil_prozent or 100) / 100
+    # zum Vorschlagen eines Betrags: die letzte Zahlung, brutto und nach Rückzahlungen
+    echte = [t for t in zahlungen if t.betrag < 0 and not ist_rueckzahlung(c, t)]
+    letzte = echte[0] if echte else None
+    zurueck = sum((t.betrag for t in zahlungen if ist_rueckzahlung(c, t) and letzte and t.buchungsdatum >= letzte.buchungsdatum),
+                  Decimal(0))
     return {**contract_out(c, heute),
+            "letzte_zahlung_betrag": letzte.betrag if letzte else None,
+            "letzte_zahlung_netto": (letzte.betrag + zurueck) if letzte and zurueck else None,
             # tatsächlich gebucht – im Unterschied zu „jaehrlich“ (aktueller Betrag aufs Jahr hochgerechnet)
             "gezahlt_12_monate": sum((t.betrag for t in zahlungen if vor_einem_jahr < t.buchungsdatum <= heute),
                                      Decimal(0)) * anteil,
@@ -236,8 +246,16 @@ def patch_contract(contract_id: int, body: ContractPatch, s: Session = Depends(g
         raise HTTPException(404, "Vertrag nicht gefunden")
     gesetzt = body.model_fields_set
     for k, v in body.model_dump().items():
+        if k in ("betrag", "betrag_automatisch"):
+            continue
         if k in gesetzt and (v is not None or k in LEERBAR):
             setattr(c, k, v.strip() if isinstance(v, str) else v)
+    if body.betrag is not None:  # Betrag von Hand: bleibt, bis er wieder „automatisch“ gestellt wird
+        c.erwarteter_betrag = (-1 if c.typ == "ausgabe" else 1) * body.betrag.quantize(Decimal("0.01"))
+        c.betrag_fix, c.betrag_gestiegen, c.vorheriger_betrag = True, False, None
+    elif body.betrag_automatisch:
+        c.betrag_fix = False
+        sync_contracts(s, ctx.today())  # Betrag wieder aus den Buchungen (samt Rückzahlungen) bestimmen
     if c.frist_wert and not c.frist_einheit:
         c.frist_einheit = "monate"
     if gesetzt & {"name", "kategorie"}:

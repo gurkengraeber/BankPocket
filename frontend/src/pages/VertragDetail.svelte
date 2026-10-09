@@ -105,13 +105,38 @@
 
   async function rzEintragen(b: any) {
     try {
+      const alt = Number(v.betrag);
       await api(`/buchungen/${b.id}`, { method: 'PATCH', body: { rueckzahlung: true, kategorie: v.kategorie, contract_id: id } });
-      toast('Rückzahlung eingetragen');
       rzOffen = false;
       await laden();
+      toast(Number(v.betrag) !== alt ? `Rückzahlung eingetragen – der Vertrag kostet jetzt ${euro(Math.abs(Number(v.betrag)))}` : 'Rückzahlung eingetragen');
     } catch (e) {
       fehler(e);
     }
+  }
+
+  // Betrag von Hand: bleibt stehen, bis man ihn wieder „automatisch“ stellt. Vorschläge zum Antippen.
+  let betragOffen = $state(false);
+  let betragText = $state('');
+  const zahl = (text: string) => Number(text.trim().replace(/[€\s]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+  const eingabe = (x: number) => x.toFixed(2).replace('.', ',');
+
+  function betragOeffnen() {
+    betragText = eingabe(Math.abs(Number(v.betrag)));
+    betragOffen = true;
+  }
+
+  async function betragSpeichern(e: Event) {
+    e.preventDefault();
+    const wert = zahl(betragText);
+    if (!(wert > 0)) return;
+    await aendern({ betrag: Math.round(wert * 100) / 100 });
+    betragOffen = false;
+  }
+
+  async function betragAutomatisch() {
+    await aendern({ betrag_automatisch: true });
+    betragOffen = false;
   }
 
   // Vertragsdaten: Art, Laufzeit, Kündigungsfrist – trägt man selbst ein, die Bank weiß davon nichts.
@@ -195,7 +220,10 @@
           {v.name}<Pencil size={16} class="text-muted" />
         </button>
       {/if}
-      <Amount wert={Math.abs(Number(v.betrag))} farbig={v.typ === 'einnahme'} klasse="mt-1 text-[38px] font-bold tracking-tight" />
+      <button class="mt-1 flex items-center gap-2" onclick={betragOeffnen} aria-label="Betrag ändern">
+        <Amount wert={Math.abs(Number(v.betrag))} farbig={v.typ === 'einnahme'} klasse="text-[38px] font-bold tracking-tight" />
+        <Pencil size={16} class="text-muted" />
+      </button>
       <div class="text-[15px] text-muted">
         {TURNUS[v.turnus]}{#if v.turnus !== 'monatlich'} · Ø <Amount wert={v.monatlich} /> pro Monat{/if}
       </div>
@@ -214,6 +242,9 @@
       <div class="mt-3 flex flex-wrap justify-center gap-2">
         {#if v.anteil_prozent < 100}
           <span class="pill bg-accent-soft text-accent">Dein Anteil {v.anteil_prozent} % · {euro(Math.abs(Number(v.mein_betrag)))}</span>
+        {/if}
+        {#if v.betrag_fix}
+          <span class="pill bg-card-hi text-muted">Betrag von dir festgelegt</span>
         {/if}
         {#if v.gekuendigt_zum}
           <span class="pill bg-card-hi text-muted"><Check size={14} /> Gekündigt zum {datum(v.gekuendigt_zum)}</span>
@@ -470,4 +501,33 @@
       {/each}
     </div>
   {/if}
+</Sheet>
+
+<Sheet bind:offen={betragOffen} titel="Betrag ändern">
+  <form onsubmit={betragSpeichern} class="space-y-4">
+    <div>
+      <label class="label" for="bt-betrag">Betrag je Zahlung ({TURNUS[v?.turnus]})</label>
+      <div class="relative">
+        <input id="bt-betrag" class="feld pr-10 text-2xl font-semibold" inputmode="decimal" placeholder="0,00" bind:value={betragText} />
+        <span class="absolute right-4 top-1/2 -translate-y-1/2 text-xl text-muted">€</span>
+      </div>
+    </div>
+    {#if v?.letzte_zahlung_betrag || v?.letzte_zahlung_netto}
+      <div class="flex flex-wrap gap-2">
+        {#if v.letzte_zahlung_betrag}
+          <button type="button" class="pill-accent" onclick={() => (betragText = eingabe(Math.abs(Number(v.letzte_zahlung_betrag))))}>Zuletzt gezahlt: {euro(Math.abs(Number(v.letzte_zahlung_betrag)))}</button>
+        {/if}
+        {#if v.letzte_zahlung_netto}
+          <button type="button" class="pill-accent" onclick={() => (betragText = eingabe(Math.abs(Number(v.letzte_zahlung_netto))))}>Nach Rückzahlung: {euro(Math.abs(Number(v.letzte_zahlung_netto)))}</button>
+        {/if}
+      </div>
+    {/if}
+    <p class="text-[13px] text-muted">
+      {v?.betrag_fix ? 'Dieser Betrag gilt, bis du ihn wieder automatisch erkennen lässt – auch wenn sich die Abbuchung ändert.' : 'BankPocket bestimmt den Betrag aus den Buchungen. Mit einem eigenen Betrag bleibt er so, auch wenn sich die Abbuchung ändert.'}
+    </p>
+    <button class="knopf-primaer w-full" disabled={!(zahl(betragText) > 0)}>Speichern</button>
+    {#if v?.betrag_fix}
+      <button type="button" class="w-full py-2 text-[15px] font-medium text-accent" onclick={betragAutomatisch}>Wieder automatisch erkennen</button>
+    {/if}
+  </form>
 </Sheet>

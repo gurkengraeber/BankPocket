@@ -17,7 +17,7 @@ from .. import logos, umbuchungen
 from ..analysen import _kategorie, ist_steuer
 from ..db import GRUPPEN, KONTOTYPEN, Account, Balance, Connection, ContractRow, Holding, Price, TransactionRow
 from ..models import Transaction
-from ..service import (_to_dataclass, account_saldo, holdings_setzen, import_transactions, ist_rueckzahlung, konten_zusammenfuehren,
+from ..service import (_to_dataclass, account_saldo, holdings_setzen, import_transactions, ist_rueckzahlung, konten_zusammenfuehren, netto_nachfuehren,
                        loesch_folgen, saldo_setzen,
                        sync_contracts, zahlung_anrechnen)
 from .deps import get_ctx, get_db
@@ -553,6 +553,9 @@ def buchung_patch(buchung_id: int, body: BuchungPatch, s: Session = Depends(get_
             zugehoerig = s.get(ContractRow, t.contract_id)
             if zugehoerig and zugehoerig.typ == "ausgabe":
                 t.contract_id = None
+                s.flush()
+                sync_contracts(s, ctx.today())
+                netto_nachfuehren(s, zugehoerig, zuruecksetzen=True)
     if "contract_id" in felder:
         t.vertrag_fix = True  # die Erkennung ordnet diese Buchung nicht mehr um
         if body.contract_id is None:
@@ -565,6 +568,9 @@ def buchung_patch(buchung_id: int, body: BuchungPatch, s: Session = Depends(get_
                 raise HTTPException(400, "Ein Geldeingang gehört nur als Rückzahlung zu einem Ausgaben-Vertrag.")
             t.contract_id = c.id
             _vertrag_nachfuehren(c, t)
+            if ist_rueckzahlung(c, t):  # der Betrag des Vertrags zählt dann nach der Rückzahlung
+                s.flush()
+                netto_nachfuehren(s, c)
             if c.quelle == "manuell" and not ist_rueckzahlung(c, t):
                 # die übrigen Zahlungen dieser Art gehören auch dazu – jetzt und bei künftigen Abrufen
                 c.muster = c.muster or muster(_to_dataclass(t))
