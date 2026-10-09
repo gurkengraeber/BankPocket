@@ -184,6 +184,18 @@ docker compose logs tailscale | tail    # should show “bankpocket” as logged
 If everything runs via Tailscale you can close access in the home network: `BANKPOCKET_PORT=127.0.0.1:8000` in
 `.env`.
 
+**Without Docker** (BankPocket runs directly on the server): install Tailscale on the server and run
+`sudo tailscale serve --bg 8000` once (first enable “Serve” and HTTPS certificates in the Tailscale admin console;
+`sudo tailscale set --operator=$USER` once lets later changes run without root). BankPocket is then reachable at
+`https://<servername>.<your-tailnet>.ts.net`, for your own Tailscale devices only.
+
+**A fixed DNS on the phone:** the `….ts.net` name is only known to Tailscale. Android's “Private DNS” or a DNS app
+(AdGuard, Blokada …) asks its provider instead and does not find it. Then add your DNS provider in the Tailscale admin
+console under *DNS → Global nameservers*, switch on “Override DNS servers”, set “Private DNS” to off on the phone and
+enable “Use Tailscale DNS settings” in the Tailscale app. Only connections to your own devices and DNS queries then go
+through Tailscale; everything else goes straight to the internet (unless an “exit node” is chosen). Fallback without
+name resolution: `http://<Tailscale IP>:8000`.
+
 **Alternative without Tailscale** (home network only): `docker compose --profile https up -d` starts Caddy with
 its own certificate authority on `https://<BANKPOCKET_HOST>:8443`. The root certificate
 `caddy-daten/caddy/pki/authorities/local/root.crt` then has to be installed once on the phone.
