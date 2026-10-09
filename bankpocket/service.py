@@ -421,8 +421,8 @@ def _bisheriger_vertrag(d, by_obj: dict, nach_id: dict[int, ContractRow]) -> Con
 
 
 def ist_rueckzahlung(c: ContractRow, r: TransactionRow) -> bool:
-    """Geld, das von einem Ausgaben-Vertrag zurückkam (Erstattung): gehört zum Vertrag, ist aber keine Zahlung –
-    es ändert weder Termin noch erwarteten Betrag."""
+    """Geld, das von einem Ausgaben-Vertrag zurückkam (Erstattung, auf der Vertragsseite „Rückzahlung eintragen“):
+    gehört zum Vertrag, ist aber keine Zahlung – es ändert weder Termin noch erwarteten Betrag."""
     return bool(r.rueckzahlung) and r.betrag > 0 and c.typ == "ausgabe"
 
 

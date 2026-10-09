@@ -60,7 +60,10 @@ Was BankPocket wie rechnet und wo du es findest – zum Nachschlagen. Einrichtun
   bei ihrer Oberkategorie mit und steht darunter einzeln; in der Auswahl steht sie eingerückt dahinter.
 - **Rückzahlung** (Schalter an jedem Geldeingang): Geld kam zurück – eine Erstattung, oder jemand zahlt seinen
   Teil. Der Eingang zählt dann nicht als Einnahme, sondern mindert die Ausgaben der Kategorie, die du dazu wählst
-  (in Analysen, Budgets, Bereichen und bei „frei verfügbar“).
+  (in Analysen, Budgets, Bereichen und bei „frei verfügbar“). Gehört das Geld zu einem Vertrag (Erstattung des
+  Anbieters), geht es auch von dort: auf der Vertragsseite **„Rückzahlung eintragen“** und den Geldeingang antippen.
+  Er steht dann bei den Zahlungen des Vertrags und mindert dessen Kosten („letzte 12 Monate“, gesamt, „vom Gehalt
+  verfügbar“), ändert aber nichts an letzter Zahlung, erwartetem Betrag und Rhythmus.
 - **Nicht berücksichtigen** (Schalter an jeder Buchung): Die Buchung zählt nirgends mit – weder bei „frei
   verfügbar“ noch in Analysen und Budgets (z. B. Auslagen, die du zurückbekommst).
 - **Gekündigt**: Auf der Vertragsseite „Ist gekündigt“ antippen – der Vertrag endet zum berechneten Termin, es wird
