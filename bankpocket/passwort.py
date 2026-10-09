@@ -15,7 +15,7 @@ def main() -> None:
         raise SystemExit("Bitte mindestens 10 Zeichen verwenden.")
     if getpass("Passwort wiederholen: ") != pw:
         raise SystemExit("Die Passwörter stimmen nicht überein.")
-    with make_sessionmaker(settings.db_url)() as s:
+    with make_sessionmaker(settings.db_url, settings.db_schluessel())() as s:
         passwort_setzen(s, pw)
         s.commit()
     print("Passwort gesetzt. Bestehende Anmeldungen wurden abgemeldet.")

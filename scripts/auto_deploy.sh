@@ -31,7 +31,7 @@ main() {
     [ "$neu" = "$(cat .auto_deploy_fehler 2>/dev/null)" ] && exit 0   # dieser Stand lief schon einmal nicht
 
     geaendert=$(git diff --name-only "$lokal" "$neu" 2>/dev/null || echo "bankpocket/")
-    echo "$geaendert" | grep -qE '^(bankpocket/|requirements\.txt$)' && neustart=1
+    echo "$geaendert" | grep -qE '^(bankpocket/|requirements(-verschluesselung)?\.txt$)' && neustart=1
     if [ "$neustart" = 1 ] && [ "$(abrufe_laufen)" != 0 ]; then
         log "Update ${neu:0:7} wartet: gerade läuft ein Abruf"
         exit 0
@@ -40,8 +40,9 @@ main() {
     log "Update ${lokal:0:7} -> ${neu:0:7} ($(echo "$geaendert" | wc -l) Dateien, Neustart: $neustart)"
     git reset -q --hard "$neu" 2>>"$LOG" || { log "git reset fehlgeschlagen"; exit 0; }
     git clean -fdxq -- frontend/dist   # alte Dateien der Oberfläche
-    if echo "$geaendert" | grep -q '^requirements\.txt$'; then
-        .venv/bin/pip install -q -r requirements.txt >> "$LOG" 2>&1 || log "pip install fehlgeschlagen"
+    if echo "$geaendert" | grep -q '^requirements'; then
+        .venv/bin/pip install -q -r requirements.txt -r requirements-verschluesselung.txt >> "$LOG" 2>&1 \
+            || log "pip install fehlgeschlagen"
     fi
     [ "$neustart" = 0 ] && { log "Fertig (nur Oberfläche, kein Neustart)"; exit 0; }
 
@@ -59,6 +60,11 @@ main() {
 # Anzahl laufender Abrufe; bei jeder Unsicherheit „1“, damit nicht mitten in einem Abruf neu gestartet wird
 abrufe_laufen() {
     local n
+    # verschlüsselte Datenbank: das Werkzeug von BankPocket kennt den Schlüssel (aus .env, wie beim Start)
+    n=$( (set -a; [ -f .env ] && . ./.env; set +a; export BANKPOCKET_DATA_DIR="$PWD/data"
+          .venv/bin/python -m bankpocket.datenbank abrufe) 2>/dev/null | tail -n 1)
+    case "$n" in ''|*[!0-9]*) ;; *) echo "$n"; return ;; esac
+    # ältere Version ohne dieses Werkzeug (unverschlüsselte Datenbank)
     n=$(.venv/bin/python -c '
 import sqlite3
 c = sqlite3.connect("file:data/bankpocket.db?mode=ro", uri=True)

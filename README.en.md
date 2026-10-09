@@ -214,6 +214,24 @@ BankPocket backs up these three files once a day (after the first automatic sync
 `data/backups/` – the last 14 days and the first backup of each month, one year back. Status and “Jetzt sichern”
 are under *Einstellungen → Sicherung*; if a backup fails, a notice appears.
 
+**Encrypting the database (recommended):** With [SQLCipher](https://www.zetetic.net/sqlcipher/) (AES-256) a copied
+`bankpocket.db` cannot be read without the key – neither amounts nor names nor payment references. The key lives in its
+own file **outside `data/`**. Set up (stop BankPocket first):
+
+```bash
+.venv/bin/pip install -r requirements-verschluesselung.txt     # SQLCipher (Linux x86_64; otherwise build sqlcipher3 yourself)
+echo 'BANKPOCKET_DB_KEY_FILE=/home/bankpocket/.bankpocket/db.key' >> .env
+set -a; . ./.env; set +a
+.venv/bin/python -m bankpocket.backup                          # backup as a safety net
+.venv/bin/python -m bankpocket.datenbank verschluesseln        # creates the key, converts, verifies
+```
+
+The old unencrypted file stays behind as `bankpocket.db.klartext-…` (as do earlier copies such as `bankpocket.db.vor-…`).
+Once BankPocket runs again, remove them with `python -m bankpocket.datenbank klartext-loeschen` (overwrites and deletes).
+The daily backup puts the key into the archive as `db.key`, so the backup password is enough to restore. **Without the
+key and without a backup the database is lost.** This protects against copies of the file (backups, a stolen disk, other
+services on the machine) – not against someone working as BankPocket's user on the running server.
+
 That alone does not help if the disk fails. For an encrypted off-site copy, in `.env`:
 
 ```
@@ -240,6 +258,7 @@ Encrypting the server's disk as well protects you if the server is stolen.
 ## Security at a glance
 
 - Bank PINs and FinTS session data are encrypted (Fernet/AES), the key is kept separate from the database
+- Optionally the whole database is encrypted (SQLCipher, AES-256, see “Backups”)
 - Web app with password (scrypt), session cookie `HttpOnly` + `SameSite=Strict`, throttling after failed logins
 - The browser loads scripts only from your own server (Content Security Policy); the database is readable only
   by the user BankPocket runs as

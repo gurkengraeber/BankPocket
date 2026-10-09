@@ -22,7 +22,7 @@ KONTEN = [
 def main() -> None:
     settings = Settings.from_env()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    with make_sessionmaker(settings.db_url)() as s:
+    with make_sessionmaker(settings.db_url, settings.db_schluessel())() as s:
         if s.scalar(select(Account).limit(1)):
             print("Konten existieren bereits – nichts zu tun.")
             return

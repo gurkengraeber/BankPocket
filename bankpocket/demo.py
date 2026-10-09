@@ -130,7 +130,7 @@ def erzeugen(settings: Settings, heute: date | None = None) -> None:
     heute = heute or date.today()
     rnd = random.Random(42)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    S = make_sessionmaker(settings.db_url)
+    S = make_sessionmaker(settings.db_url, settings.db_schluessel())
     vault = Vault.from_file(settings.key_file)
     jetzt = datetime.now()
     with S() as s:

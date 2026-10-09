@@ -55,7 +55,7 @@ def create_app(settings: Settings | None = None, today: Callable[[], date] = dat
                notifier: Notifier | None = None, quellen: dict | None = None, ki_client=None) -> FastAPI:
     settings = settings or Settings.from_env()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    session_factory = make_sessionmaker(settings.db_url)
+    session_factory = make_sessionmaker(settings.db_url, settings.db_schluessel())
     ctx = AppContext(settings=settings, session_factory=session_factory, vault=Vault.from_file(settings.key_file),
                      notifier=notifier or Notifier(session_factory, settings.data_dir, settings.push_kontakt),
                      today=today, now=now, source_factory=source_factory,

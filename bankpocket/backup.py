@@ -17,7 +17,6 @@ import io
 import logging
 import os
 import shutil
-import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -31,6 +30,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from .config import Settings
+from .db import roh_verbinden
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +91,8 @@ def _archiv(settings: Settings) -> bytes:
     puffer = io.BytesIO()
     with tempfile.TemporaryDirectory(dir=settings.data_dir) as tmp:
         kopie = Path(tmp) / "bankpocket.db"
-        quelle, ziel = sqlite3.connect(db), sqlite3.connect(kopie)
+        schluessel = settings.db_schluessel()  # verschlüsselte Datenbank: die Kopie ist ebenso verschlüsselt
+        quelle, ziel = roh_verbinden(db, schluessel), roh_verbinden(kopie, schluessel)
         try:
             quelle.backup(ziel)
             if ziel.execute("pragma integrity_check").fetchone()[0] != "ok":
@@ -105,6 +106,10 @@ def _archiv(settings: Settings) -> bytes:
                 pfad = settings.key_file if name == "secret.key" else settings.data_dir / name
                 if pfad and Path(pfad).exists():
                     tar.add(pfad, arcname=name)
+            if schluessel:  # zur Wiederherstellung genügt dann das Sicherungspasswort
+                schluesseldatei = Path(tmp) / "db.key"
+                schluesseldatei.write_text(schluessel + "\n")
+                tar.add(schluesseldatei, arcname="db.key")
     return puffer.getvalue()
 
 
@@ -210,7 +215,7 @@ def main() -> None:
         ziel = quelle.with_suffix("") if quelle.suffix == ".enc" else quelle.with_name(quelle.name + ".tar.gz")
         ziel.write_bytes(entschluesseln(quelle.read_bytes(), settings.backup_passwort))
         ziel.chmod(0o600)
-        print(f"Entschlüsselt: {ziel}  (enthält bankpocket.db und die Schlüsseldateien – nach data/ entpacken)")
+        print(f"Entschlüsselt: {ziel}  (enthält bankpocket.db und die Schlüsseldateien – nach data/ entpacken; db.key gehört an den Ort aus BANKPOCKET_DB_KEY_FILE)")
         return
     try:
         erg = sichern(settings)

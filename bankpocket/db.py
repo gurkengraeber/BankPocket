@@ -1,15 +1,19 @@
 """Datenbankschema (SQLAlchemy 2). SQLite zum Start, Postgres später über BANKPOCKET_DB_URL möglich."""
 from __future__ import annotations
 
+import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 from decimal import Decimal
+from urllib.parse import quote
 
 from sqlalchemy import (Boolean, Date, DateTime, ForeignKey, Integer, String, Text, TypeDecorator,
                         UniqueConstraint, create_engine, event, inspect, select)
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
+from .config import DbSchluesselFehler
 from .models import monatsbetrag
 
 GRUPPEN = ["Tägliche Konten", "Sparkonten", "Crypto", "Virtuell"]
@@ -284,8 +288,40 @@ class KeyValue(Base):
     value: Mapped[str] = mapped_column(Text)
 
 
-def _sqlite_pragmas(dbapi_conn, _record) -> None:
+KLARTEXT_KOPF = b"SQLite format 3\x00"  # jede unverschlüsselte SQLite-Datei beginnt so
+
+
+def ist_klartext(pfad: str | Path) -> bool:
+    try:
+        with open(pfad, "rb") as f:
+            return f.read(16) == KLARTEXT_KOPF
+    except OSError:
+        return False
+
+
+def _sqlcipher():
+    try:
+        import sqlcipher3.dbapi2 as modul
+    except ImportError as e:
+        raise DbSchluesselFehler("Für die verschlüsselte Datenbank fehlt das Paket sqlcipher3-binary "
+                                 "(pip install -r requirements-verschluesselung.txt).") from e
+    return modul
+
+
+def roh_verbinden(pfad: str | Path, schluessel: str | None = None, nur_lesen: bool = False):
+    """Eine einzelne Verbindung ohne SQLAlchemy – für Sicherung, Umstellung und Prüfungen."""
+    treiber = _sqlcipher() if schluessel else sqlite3
+    ziel = f"file:{quote(str(pfad))}?mode=ro" if nur_lesen else str(pfad)
+    con = treiber.connect(ziel, uri=nur_lesen)
+    if schluessel:
+        con.execute(f"PRAGMA key = \"x'{schluessel}'\"")
+    return con
+
+
+def _sqlite_pragmas(dbapi_conn, _record, schluessel: str | None = None) -> None:
     cur = dbapi_conn.cursor()
+    if schluessel:
+        cur.execute(f"PRAGMA key = \"x'{schluessel}'\"")  # muss die erste Anweisung sein
     cur.execute("PRAGMA journal_mode=WAL")  # Lesen während Abrufe schreiben
     cur.execute("PRAGMA busy_timeout=15000")
     cur.execute("PRAGMA foreign_keys=ON")
@@ -313,12 +349,28 @@ def ensure_schema(engine: Engine) -> None:
                 conn.exec_driver_sql(ddl)
 
 
-def make_sessionmaker(url: str) -> sessionmaker:
+def make_sessionmaker(url: str, schluessel: str | None = None) -> sessionmaker:
+    """schluessel: Schlüssel der verschlüsselten Datenbank (SQLCipher); ohne ihn bleibt sie ein normales SQLite."""
+    datei = Path(url[len("sqlite:///"):]) if url.startswith("sqlite:///") else None
+    if datei and datei.exists() and datei.stat().st_size > 0:
+        if schluessel and ist_klartext(datei):
+            raise DbSchluesselFehler("Die Datenbank ist noch nicht verschlüsselt – bitte einmal "
+                                     "„python -m bankpocket.datenbank verschluesseln“ ausführen (BankPocket vorher beenden).")
+        if not schluessel and not ist_klartext(datei):
+            raise DbSchluesselFehler("Die Datenbank ist verschlüsselt, aber es ist kein Schlüssel eingestellt "
+                                     "(BANKPOCKET_DB_KEY_FILE).")
     kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
+    if schluessel:
+        kwargs["module"] = _sqlcipher()
     engine = create_engine(url, **kwargs)
     if url.startswith("sqlite"):
-        event.listen(engine, "connect", _sqlite_pragmas)
-    ensure_schema(engine)
+        event.listen(engine, "connect", lambda con, rec: _sqlite_pragmas(con, rec, schluessel))
+    try:
+        ensure_schema(engine)
+    except DatabaseError as e:
+        if schluessel:
+            raise DbSchluesselFehler("Der Datenbank-Schlüssel passt nicht zur Datenbank.") from e
+        raise
     if url.startswith("sqlite:///"):
         # Buchungen, Passwort-Hash und Sitzungsgeheimnis gehen andere Benutzer des Rechners nichts an
         datei = Path(url[len("sqlite:///"):])

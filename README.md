@@ -205,6 +205,25 @@ Alles Wichtige liegt in `data/`:
 
 Bei Tailscale zusätzlich `tailscale-daten/` sichern – sonst muss sich `bankpocket` neu anmelden.
 
+**Datenbank verschlüsseln (empfohlen):** Mit [SQLCipher](https://www.zetetic.net/sqlcipher/) (AES-256) lässt sich eine
+kopierte `bankpocket.db` ohne Schlüssel nicht lesen – auch Beträge, Namen und Verwendungszwecke nicht. Der Schlüssel liegt
+in einer eigenen Datei **außerhalb von `data/`**. Einrichten (BankPocket vorher beenden):
+
+```bash
+.venv/bin/pip install -r requirements-verschluesselung.txt     # SQLCipher (Linux x86_64; sonst sqlcipher3 selbst bauen)
+echo 'BANKPOCKET_DB_KEY_FILE=/home/bankpocket/.bankpocket/db.key' >> .env
+set -a; . ./.env; set +a
+.venv/bin/python -m bankpocket.backup                          # Sicherung als Rückfallnetz
+.venv/bin/python -m bankpocket.datenbank verschluesseln        # legt den Schlüssel an, stellt um, prüft
+```
+
+Danach liegt die alte, unverschlüsselte Datei noch als `bankpocket.db.klartext-…` da (ebenso frühere Kopien wie
+`bankpocket.db.vor-…`). Läuft BankPocket wieder, entfernst du sie mit `python -m bankpocket.datenbank klartext-loeschen`
+(überschreibt und löscht). Die tägliche Sicherung legt den Schlüssel als `db.key` mit ins Archiv: zur Wiederherstellung
+genügt das Sicherungspasswort. **Ohne Schlüssel und ohne Sicherung ist die Datenbank verloren.** Der Schutz gilt gegen
+Kopien der Datei (Sicherungen, gestohlene Platte, andere Dienste auf dem Rechner) – nicht gegen jemanden, der als der
+Benutzer von BankPocket auf dem laufenden Server arbeitet.
+
 BankPocket sichert diese drei Dateien einmal täglich (nach dem ersten automatischen Abruf) als ein Archiv nach
 `data/backups/` – die letzten 14 Tage und je Monat die erste Sicherung, ein Jahr zurück. Stand und „Jetzt sichern“
 stehen unter *Einstellungen → Sicherung*; schlägt eine Sicherung fehl, erscheint ein Hinweis.
@@ -235,6 +254,7 @@ Die Server-Festplatte zusätzlich zu verschlüsseln schützt bei Diebstahl des S
 ## Sicherheit im Überblick
 
 - Bank-PINs und FinTS-Sitzungsdaten verschlüsselt (Fernet/AES), Schlüssel getrennt von der Datenbank
+- Auf Wunsch die ganze Datenbank verschlüsselt (SQLCipher, AES-256, siehe „Datensicherung“)
 - Web-App mit Passwort (scrypt), Session-Cookie `HttpOnly` + `SameSite=Strict`, Bremse nach Fehlversuchen
 - Der Browser lädt Skripte nur vom eigenen Server (Content-Security-Policy); die Datenbank ist nur für den
   Benutzer lesbar, unter dem BankPocket läuft
