@@ -1,0 +1,46 @@
+services:
+  bankpocket:
+    build: .
+    image: bankpocket:latest
+    container_name: bankpocket
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Datenbank, Schlüsseldatei und Push-Schlüssel – regelmäßig sichern!
+      - ./data:/data
+    ports:
+      # Nur im Heimnetz erreichbar – im Router KEINE Portfreigabe einrichten.
+      - "${BANKPOCKET_PORT:-8000}:8000"
+
+  # HTTPS über Tailscale (empfohlen): eigenes Gerät „bankpocket“ in deinem Tailnet mit echtem Zertifikat,
+  # erreichbar nur für deine Tailscale-Geräte – zu Hause und unterwegs. Belegt keine Ports auf dem Server.
+  #   docker compose --profile tailscale up -d
+  tailscale:
+    image: tailscale/tailscale:stable
+    profiles: ["tailscale"]
+    hostname: bankpocket  # → https://bankpocket.<dein-tailnet>.ts.net
+    restart: unless-stopped
+    depends_on: [bankpocket]
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}  # nur für die erste Anmeldung nötig
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=true  # kein /dev/net/tun und keine Extra-Rechte nötig
+      - TS_SERVE_CONFIG=/config/serve.json
+    volumes:
+      - ./tailscale-daten:/var/lib/tailscale
+      - ./tailscale-serve.json:/config/serve.json:ro
+
+  # Alternative ohne Tailscale – HTTPS nur im Heimnetz mit eigener Zertifizierungsstelle:
+  #   docker compose --profile https up -d   → https://<BANKPOCKET_HOST>:8443
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [bankpocket]
+    env_file: .env
+    ports:
+      # Nicht 443/80: die sind auf vielen Heimservern schon belegt (z. B. Apache)
+      - "${BANKPOCKET_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-daten:/data

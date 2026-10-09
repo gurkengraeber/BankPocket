@@ -1,0 +1,13 @@
+{
+	# Eigene lokale Zertifizierungsstelle: kein Let's Encrypt, nichts Öffentliches
+	local_certs
+	skip_install_trust
+	# Browser schicken bei IP-Adressen keinen Servernamen mit – dann dieses Zertifikat nehmen
+	default_sni {$BANKPOCKET_HOST}
+}
+
+{$BANKPOCKET_HOST} {
+	tls internal
+	reverse_proxy bankpocket:8000
+	header Strict-Transport-Security "max-age=31536000"
+}

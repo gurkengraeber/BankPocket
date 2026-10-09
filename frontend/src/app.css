@@ -1,0 +1,134 @@
+@import "tailwindcss";
+@import "@fontsource-variable/manrope";
+
+@theme {
+  --font-sans: "Manrope Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Eigenes Erscheinungsbild: Tintenblau statt Schwarz, klares Blau als Akzent, feine Linien statt flacher Flächen */
+  --color-bg: #0e1016;
+  --color-card: #171a22;
+  --color-card-hi: #222634;
+  --color-line: #2a2f3d;
+  --color-text: #eef0f6;
+  --color-muted: #9aa1b3;
+  --color-faint: #686f82;
+  --color-sheet: #13161d;
+  --color-spur: #333a4c;
+
+  --color-accent: #7fa8ff;
+  --color-accent-strong: #5f8df5;
+  --color-accent-soft: #1a2a4a;
+  --color-accent-ink: #0b1630;
+
+  --color-pos: #4fd08c;
+  --color-warn: #f0a63a;
+  --color-warn-soft: #3a2a0f;
+  --color-neg: #ff7381;
+  --color-neg-soft: #3d151b;
+
+  --radius-card: 16px;
+}
+
+:root[data-theme="light"] {
+  --color-bg: #f5f3ee;
+  --color-card: #ffffff;
+  --color-card-hi: #eeebe4;
+  --color-line: #e3dfd6;
+  --color-text: #16171c;
+  --color-muted: #646874;
+  --color-faint: #9b9ea8;
+  --color-sheet: #f5f3ee;
+  --color-spur: #ddd9cf;
+
+  --color-accent: #1f5fd0;
+  --color-accent-strong: #174fb3;
+  --color-accent-soft: #e2ebfb;
+  --color-accent-ink: #ffffff;
+
+  --color-pos: #157f3f;
+  --color-warn: #a66100;
+  --color-warn-soft: #fbecc9;
+  --color-neg: #cc3241;
+  --color-neg-soft: #fbe2e4;
+}
+
+@layer base {
+  html {
+    background: var(--color-bg);
+    color: var(--color-text);
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    min-height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    overscroll-behavior-y: none;
+  }
+  button { cursor: pointer; }
+  input, select, textarea { font: inherit; color: inherit; }
+  ::selection { background: color-mix(in srgb, var(--color-accent) 35%, transparent); }
+}
+
+@utility karte {
+  border-radius: var(--radius-card);
+  background-color: var(--color-card);
+  border: 1px solid var(--color-line);
+}
+@utility zeile {
+  @apply flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-card-hi lg:gap-3.5 lg:py-3.5;
+}
+@utility pill {
+  @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium;
+}
+@utility pill-accent {
+  @apply pill bg-accent-soft text-accent active:brightness-125;
+}
+@utility knopf {
+  @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-[15px] font-semibold transition active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100;
+}
+@utility knopf-primaer {
+  @apply knopf bg-accent text-accent-ink;
+}
+@utility knopf-sekundaer {
+  @apply knopf bg-card-hi text-text;
+}
+@utility knopf-gefahr {
+  @apply knopf bg-neg-soft text-neg;
+}
+@utility feld {
+  @apply w-full rounded-2xl border border-line bg-card px-4 py-3.5 text-[16px] outline-none transition placeholder:text-faint focus:border-accent;
+}
+@utility label {
+  @apply mb-1.5 block text-sm font-medium text-muted;
+}
+@utility abschnitt {
+  @apply px-1 pb-2.5 pt-7 text-[22px] font-bold tracking-tight;
+}
+
+.zeile + .zeile { border-top: 1px solid var(--color-line); }
+.versteckt { filter: blur(7px); user-select: none; }
+
+@keyframes puls {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  70% { transform: scale(1.5); opacity: 0; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+.puls::before, .puls::after {
+  content: ""; position: absolute; inset: 0; border-radius: 9999px;
+  background: var(--color-accent); animation: puls 2.2s ease-out infinite;
+}
+.puls::after { animation-delay: 1.1s; }
+
+/* Platzhalter beim Laden: grauer Balken, über den ein hellerer Schimmer von links nach rechts läuft */
+@utility schimmer {
+  background: linear-gradient(100deg, var(--color-spur) 30%, var(--color-card-hi) 50%, var(--color-spur) 70%);
+  background-size: 300% 100%;
+  animation: schimmer 1.3s ease-in-out infinite;
+  opacity: 0.75;
+}
+@keyframes schimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .schimmer { animation: none; }
+}
