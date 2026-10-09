@@ -69,7 +69,8 @@ print(c.execute("select count(*) from connections where status=?", ("laeuft",)).
 neu_starten() {
     pkill -f "[u]vicorn bankpocket"
     for _ in $(seq 1 100); do pgrep -f "[u]vicorn bankpocket" >/dev/null || break; sleep 1; done   # wartet auf laufende Abrufe
-    setsid nohup ./start.sh >> bankpocket.log 2>&1 < /dev/null &
+    # 9>&-: BankPocket erbt sonst die Sperrdatei (Dateinummer 9) und hielte sie, solange es läuft
+    setsid nohup ./start.sh >> bankpocket.log 2>&1 < /dev/null 9>&- &
 }
 
 gesund() {
