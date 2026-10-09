@@ -27,6 +27,10 @@
     ['norwegian', 'Bank Norwegian', '?quelle=enablebanking'],
     ['n26', 'N26', '?quelle=enablebanking&bank=n26'],
     ['revolut', 'Revolut', '?quelle=enablebanking&bank=revolut'],
+    ['commerzbank', 'Commerzbank', '?quelle=enablebanking&bank=commerzbank'],
+    ['santander', 'Santander', '?quelle=enablebanking&bank=santander'],
+    ['bunq', 'bunq', '?quelle=enablebanking&bank=bunq'],
+    ['wise', 'Wise', '?quelle=enablebanking&bank=wise'],
     ['binance', 'Binance', '?quelle=binance'],
   ];
 
@@ -83,7 +87,7 @@
       let id = csvKonto;
       if (id === 'neu') {
         const n = csvName.toLowerCase();
-        const quelle = ['paypal', 'norwegian', 'n26', 'revolut'].find((k) => n.includes(k)) ?? 'csv';
+        const quelle = ['paypal', 'norwegian', 'n26', 'revolut', 'commerzbank', 'santander', 'bunq', 'wise'].find((k) => n.includes(k)) ?? 'csv';
         const typ = quelle === 'norwegian' ? 'kreditkarte' : 'giro';
         id = (await api('/accounts', { body: { name: csvName, quelle, typ, gruppe: 'Tägliche Konten' } })).id;
       }

@@ -85,7 +85,7 @@ QUELLEN = ("https://www.google.com/s2/favicons?domain={domain}&sz=128", "https:/
 # Banken und Quellen – die Oberfläche ordnet sie über die Art des Kontos zu
 BANKEN = {"ing.de", "consorsbank.de", "paypal.com", "banknorwegian.de", "traderepublic.com", "binance.com",
           "splitwise.com", "sparkasse.de", "vr.de", "dkb.de", "comdirect.de", "postbank.de", "deutsche-bank.de",
-          "commerzbank.de", "n26.com", "barclays.de", "c24.de", "scalable.capital", "revolut.com", "wise.com",
+          "commerzbank.de", "santander.de", "bunq.com", "n26.com", "barclays.de", "c24.de", "scalable.capital", "revolut.com", "wise.com",
           "exodus.com", "getmonero.org"}
 # Ein Stichwort gilt nur am Wortanfang, kurze nur als ganzes Wort – sonst bekäme „Bergmann“ das Logo von ERGO
 _MARKEN_MUSTER = [(re.compile(r"(?<![a-zäöüß0-9])" + re.escape(w) + (r"(?![a-zäöüß0-9])" if len(w) <= 4 and not w.endswith(" ") else "")), d)

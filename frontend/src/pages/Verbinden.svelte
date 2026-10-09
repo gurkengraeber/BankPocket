@@ -21,7 +21,8 @@
   };
 
   // Banken über Enable Banking (Kürzel wie im Backend)
-  const EB_BANKEN: Record<string, string> = { norwegian: 'Bank Norwegian', consorsbank: 'Consorsbank', n26: 'N26', revolut: 'Revolut' };
+  const EB_BANKEN: Record<string, string> = { norwegian: 'Bank Norwegian', consorsbank: 'Consorsbank', n26: 'N26', revolut: 'Revolut',
+    commerzbank: 'Commerzbank', santander: 'Santander', bunq: 'bunq', wise: 'Wise' };
   const ebBank = EB_BANKEN[route.query.get('bank') ?? ''] ? route.query.get('bank')! : 'norwegian';
   const EB_NAME = EB_BANKEN[ebBank];
   // Anleitung, wenn Enable Banking schon für eine andere Bank eingerichtet ist (Zugangsdaten werden mitgenutzt)

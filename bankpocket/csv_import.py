@@ -21,20 +21,20 @@ from pathlib import Path
 from .models import Transaction
 
 ALIASES = {
-    "datum": ["buchung", "buchungstag", "buchungsdatum", "datum", "booking date", "completed date", "abschlussdatum"],
+    "datum": ["buchung", "buchungstag", "buchungsdatum", "datum", "booking date", "completed date", "abschlussdatum", "date"],
     "datum_alt": ["started date", "startdatum"],  # Revolut: noch nicht abgeschlossene Zeilen haben nur dieses Datum
     "gegenpartei": ["auftraggeber/empfänger", "auftraggeber/empfaenger", "empfänger", "sender / empfänger",
                     "sender/empfänger", "sender / empfaenger", "empfänger/auftraggeber", "zahlungsempfänger",
                     "name zahlungsbeteiligter", "beguenstigter/zahlungspflichtiger",
-                    "begünstigter/zahlungspflichtiger", "gegenpartei", "partner name", "partnername", "description",
-                    "beschreibung"],
-    "zweck": ["verwendungszweck", "payment reference", "zahlungsreferenz"],
+                    "begünstigter/zahlungspflichtiger", "gegenpartei", "partner name", "partnername", "payee name",
+                    "payer name", "name", "merchant", "description", "beschreibung"],
+    "zweck": ["verwendungszweck", "payment reference", "zahlungsreferenz", "description"],
     "buchungstext": ["buchungstext", "umsatzart", "buchungsart", "type", "typ", "transaktionstyp"],
     "betrag": ["betrag", "betrag (eur)", "umsatz", "amount (eur)", "amount"],
-    "iban": ["iban", "iban zahlungsbeteiligter", "kontonummer/iban", "partner iban"],
+    "iban": ["iban", "iban zahlungsbeteiligter", "kontonummer/iban", "partner iban", "counterparty", "payee account number"],
     "glaeubiger": ["gläubiger-id", "glaeubiger-id", "gläubigeridentifikationsnummer"],
     "mandat": ["mandatsreferenz", "mandat"],
-    "saldo": ["saldo", "kontostand", "balance"],
+    "saldo": ["saldo", "kontostand", "balance", "running balance"],
     "gebuehr": ["fee", "gebühr", "gebuehr"],  # Revolut: wird vom Betrag abgezogen
     "status": ["state", "status"],
 }
@@ -42,6 +42,7 @@ ALIASES = {
 NICHT_GEBUCHT = {"pending", "reverted", "declined", "failed", "ausstehend", "storniert", "abgelehnt", "fehlgeschlagen",
                  "zurückgebucht", "zurueckgebucht"}
 
+_RE_GEGENPARTEI_IM_TEXT = re.compile(r"(?:Auftraggeber|Empf[aä]nger):\s*(.+?)\s+Buchungstext:\s*(.*)", re.I | re.S)
 _RE_CID = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{3}\d{8,})\b")
 _RE_MREF = re.compile(r"Mandats?-?ref(?:erenz)?\.?:?\s*([A-Za-z0-9\-_/.]{3,})", re.I)
 _RE_CID_LABEL = re.compile(r"Gl[aä]ubiger-?ID:?\s*([A-Z]{2}\d{2}[A-Z0-9]{3}\d{8,})", re.I)
@@ -62,7 +63,7 @@ def parse_amount(text: str) -> Decimal:
 
 def parse_date(text: str) -> date:
     t = text.strip().replace("T", " ").split(" ")[0]  # Uhrzeit abschneiden ("2026-09-15 10:23:45")
-    for fmt in ("%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d"):
+    for fmt in ("%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d", "%d-%m-%Y"):
         try:
             return datetime.strptime(t, fmt).date()
         except ValueError:
@@ -116,26 +117,31 @@ def parse_transactions(raw: bytes, delimiter: str = ";") -> list[Transaction]:
     raw_header = [h.strip() for h in next(reader)]
     header = [h.lower() for h in raw_header]
 
-    def col(key: str) -> int | None:
-        # Bei doppelten Spaltennamen (ING: "Währung" 2x) zählt das erste Vorkommen.
-        for alias in ALIASES[key]:
-            if alias in header:
-                return header.index(alias)
-        return None
+    def spalten(key: str) -> list[int]:
+        # Passende Spalten in der Reihenfolge der Aliase; bei doppelten Spaltennamen (ING: "Währung" 2x) zählt das
+        # erste Vorkommen. Ist die erste Spalte in einer Zeile leer, zählt die nächste (Wise: Zahler oder Empfänger).
+        return list(dict.fromkeys(header.index(alias) for alias in ALIASES[key] if alias in header))
 
-    idx = {k: col(k) for k in ALIASES}
+    idx = {k: spalten(k) for k in ALIASES}
     out: list[Transaction] = []
     for row in reader:
         if not row or all(not c.strip() for c in row):
             continue
 
         def get(key: str) -> str:
-            i = idx[key]
-            return row[i].strip() if i is not None and i < len(row) else ""
+            for i in idx[key]:
+                if i < len(row) and row[i].strip():
+                    return row[i].strip()
+            return ""
 
         if get("status").lower() in NICHT_GEBUCHT:
             continue
-        zweck = get("zweck")
+        zweck, gegenpartei = get("zweck"), get("gegenpartei")
+        if not idx["zweck"]:  # Commerzbank: alles in einer Spalte („Auftraggeber: … Buchungstext: … Ref. …“)
+            zweck = get("buchungstext")
+            m = _RE_GEGENPARTEI_IM_TEXT.search(zweck)
+            if m and not gegenpartei:
+                gegenpartei, zweck = m.group(1).strip(), (m.group(2) or "").strip() or zweck
         cid, mref = get("glaeubiger"), get("mandat")
         if not (cid and mref):
             cid2, mref2 = extract_sepa_ids(zweck)
@@ -147,7 +153,7 @@ def parse_transactions(raw: bytes, delimiter: str = ";") -> list[Transaction]:
         out.append(Transaction(
             buchungsdatum=parse_date(get("datum") or get("datum_alt")),
             betrag=parse_amount(get("betrag")) - (parse_amount(get("gebuehr")) if get("gebuehr") else 0),
-            gegenpartei=get("gegenpartei"),
+            gegenpartei=gegenpartei,
             verwendungszweck=zweck,
             iban_gegenpartei=iban.replace(" ", ""),
             glaeubiger_id=cid,

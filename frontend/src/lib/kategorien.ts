@@ -48,6 +48,9 @@ const BANKEN: Record<string, { bg: string; fg: string; text: string }> = {
   norwegian: { bg: '#d81939', fg: '#ffffff', text: 'N' },
   n26: { bg: '#36a18b', fg: '#ffffff', text: 'N26' },
   revolut: { bg: '#191c1f', fg: '#ffffff', text: 'R' },
+  santander: { bg: '#ec0000', fg: '#ffffff', text: 'S' },
+  bunq: { bg: '#1f1f1f', fg: '#ffffff', text: 'b' },
+  wise: { bg: '#9fe870', fg: '#163300', text: 'W' },
   trade_republic: { bg: 'var(--color-card-hi)', fg: 'var(--color-text)', text: 'TR' },
   binance: { bg: '#f0b90b', fg: '#1a1a1a', text: 'B' },
   splitwise: { bg: '#3fb68b', fg: '#ffffff', text: 'S' },
@@ -79,7 +82,7 @@ export const TORTENFARBEN = ['#2f6fde', '#f0a63a', '#2fb8a0', '#e8637a', '#8fc7f
 // Logos der Banken: Adresse, deren Seitensymbol der Server einmal holt (siehe bankpocket/logos.py)
 const BANK_LOGO: Record<string, string> = {
   ing: 'ing.de', consorsbank: 'consorsbank.de', paypal: 'paypal.com', norwegian: 'banknorwegian.de',
-  enablebanking: 'banknorwegian.de', n26: 'n26.com', revolut: 'revolut.com', trade_republic: 'traderepublic.com', binance: 'binance.com',
+  enablebanking: 'banknorwegian.de', n26: 'n26.com', revolut: 'revolut.com', santander: 'santander.de', bunq: 'bunq.com', wise: 'wise.com', trade_republic: 'traderepublic.com', binance: 'binance.com',
   splitwise: 'splitwise.com', sparkasse: 'sparkasse.de', volksbank: 'vr.de', dkb: 'dkb.de', comdirect: 'comdirect.de',
   postbank: 'postbank.de', deutsche_bank: 'deutsche-bank.de', commerzbank: 'commerzbank.de',
 };
@@ -88,7 +91,7 @@ const BANK_LOGO_NAME: [string, string][] = [
   ['paypal', 'paypal.com'], ['splitwise', 'splitwise.com'], ['binance', 'binance.com'], ['sparkasse', 'sparkasse.de'],
   ['volksbank', 'vr.de'], ['raiffeisen', 'vr.de'], ['comdirect', 'comdirect.de'], ['postbank', 'postbank.de'],
   ['deutsche bank', 'deutsche-bank.de'], ['commerzbank', 'commerzbank.de'], ['dkb', 'dkb.de'], ['n26', 'n26.com'],
-  ['barclays', 'barclays.de'], ['c24', 'c24.de'], ['scalable', 'scalable.capital'], ['revolut', 'revolut.com'],
+  ['barclays', 'barclays.de'], ['c24', 'c24.de'], ['scalable', 'scalable.capital'], ['revolut', 'revolut.com'], ['santander', 'santander.de'], ['bunq', 'bunq.com'],
   ['wise', 'wise.com'], ['exodus', 'exodus.com'], ['monero', 'getmonero.org'], ['ing', 'ing.de'],
 ];
 

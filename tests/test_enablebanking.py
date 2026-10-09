@@ -316,3 +316,19 @@ def test_konten_die_erst_auf_nachfrage_kommen_werden_genommen(schluessel):
     q.ia.eingabe({"code": f"{REDIRECT}?code=ABC"})
     [konto] = q.abrufen().konten
     assert (konto.name, konto.typ, konto.iban) == ("Hauptkonto", "giro", "DE02100100100006820101")
+
+
+def test_bei_mehreren_treffern_gewinnt_der_genaueste_name(schluessel):
+    _, pem = schluessel
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"aspsps": [
+            {"name": "Santander Consumer Bank", "country": "DE"}, {"name": "Santander Bank", "country": "DE"},
+            {"name": "Banco Santander", "country": "DE"}, {"name": "Wise Europe", "country": "DE"},
+            {"name": "Wise", "country": "DE"}]})
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    assert quelle(pem, http, bank="santander")._bank()["name"] == "Santander Bank"  # beginnt so, kürzester Name
+    assert quelle(pem, http, bank="wise")._bank()["name"] == "Wise"  # exakter Name
+    assert quelle(pem, http, bank="commerzbank")  # die Bank ist wählbar
+    from bankpocket.fetchers.enablebanking import BANKEN
+    assert {"commerzbank", "santander", "bunq", "wise"} <= set(BANKEN)

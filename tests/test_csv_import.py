@@ -50,3 +50,43 @@ def test_zahlen_und_datum_in_beiden_schreibweisen():
     assert parse_amount("-12.50") == Decimal("-12.50")
     assert parse_date("15.09.2026 10:23") == date(2026, 9, 15)
     assert parse_date("2026-09-15T10:23:45") == date(2026, 9, 15)
+
+
+WISE = """"TransferWise ID","Date","Amount","Currency","Description","Payment Reference","Running Balance","Exchange From","Exchange To","Exchange Rate","Payer Name","Payee Name","Payee Account Number","Merchant","Card Last Four Digits","Card Holder Full Name","Attachment","Note","Total fees"
+CARD-1,20-09-2026,-12.99,EUR,Card transaction of 12.99 EUR issued by Streamflix,,987.01,EUR,,,,,,Streamflix,1234,Max Mustermann,,,0.00
+TRANSFER-2,21-09-2026,100.00,EUR,Received money from Anna Beispiel with reference Danke,Danke,1087.01,,,,Anna Beispiel,,,,,,,,0.00
+TRANSFER-3,22-09-2026,-40.00,EUR,Sent money to Max Muster,Miete,1047.01,,,,,Max Muster,DE02120300000000202051,,,,,,0.50
+"""
+
+BUNQ = """Date;Interest Date;Amount;Account;Counterparty;Name;Description
+2026-09-20;2026-09-20;-12,99;NL02BUNQ0000000000;DE02120300000000202051;Streamflix GmbH;Abo September
+2026-09-21;2026-09-21;50,00;NL02BUNQ0000000000;DE02100100100006820101;Anna Beispiel;Danke fürs Essen
+"""
+
+COMMERZBANK = """Buchungstag;Wertstellung;Umsatzart;Buchungstext;Betrag;Währung;IBAN Auftraggeberkonto
+20.09.2026;20.09.2026;Lastschrift;Auftraggeber: Streamflix GmbH Buchungstext: Abo September Ref. ABC123;-12,99;EUR;DE02100100100006820101
+21.09.2026;21.09.2026;Gutschrift;Kartenzahlung Bäckerei am Markt;-3,50;EUR;DE02100100100006820101
+"""
+
+
+def test_wise_export_mit_datum_tag_monat_jahr():
+    karte, geld, ueberweisung = parse_transactions(WISE.encode(), ";")
+    assert (karte.buchungsdatum, karte.betrag, karte.gegenpartei, karte.saldo) == (
+        date(2026, 9, 20), Decimal("-12.99"), "Streamflix", Decimal("987.01"))
+    assert (geld.gegenpartei, geld.verwendungszweck, geld.betrag) == ("Anna Beispiel", "Danke", Decimal("100.00"))
+    assert (ueberweisung.gegenpartei, ueberweisung.iban_gegenpartei, ueberweisung.verwendungszweck) == (
+        "Max Muster", "DE02120300000000202051", "Miete")
+
+
+def test_bunq_export_mit_name_und_gegenkonto():
+    abo, geld = parse_transactions(BUNQ.encode(), ";")
+    assert (abo.buchungsdatum, abo.betrag, abo.gegenpartei, abo.verwendungszweck, abo.iban_gegenpartei) == (
+        date(2026, 9, 20), Decimal("-12.99"), "Streamflix GmbH", "Abo September", "DE02120300000000202051")
+    assert (geld.betrag, geld.gegenpartei) == (Decimal("50.00"), "Anna Beispiel")
+
+
+def test_commerzbank_export_trennt_auftraggeber_und_zweck():
+    abo, baecker = parse_transactions(COMMERZBANK.encode(), ";")
+    assert (abo.gegenpartei, abo.verwendungszweck, abo.betrag) == ("Streamflix GmbH", "Abo September Ref. ABC123", Decimal("-12.99"))
+    # ohne erkennbaren Auftraggeber bleibt der ganze Text als Verwendungszweck stehen
+    assert (baecker.gegenpartei, baecker.verwendungszweck) == ("", "Kartenzahlung Bäckerei am Markt")

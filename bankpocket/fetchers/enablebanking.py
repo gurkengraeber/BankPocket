@@ -1,4 +1,4 @@
-"""Bank Norwegian, N26, Revolut (und weitere Banken) über Enable Banking, die PSD2-Schnittstelle für Privatpersonen.
+"""Bank Norwegian, N26, Revolut, Commerzbank, Santander, bunq, Wise (und weitere Banken) über Enable Banking, die PSD2-Schnittstelle für Privatpersonen.
 
 Einrichtung bei Enable Banking (kostenlos, nur eigene Konten): eine Anwendung für „Production“ registrieren,
 Application-ID und privaten Schlüssel (PEM) in BankPocket eintragen, die Adresse von BankPocket als Redirect-URL
@@ -42,7 +42,8 @@ SITZUNG_VORBEI = ("SESSION", "EXPIRED", "CONSENT", "REVOKED", "CLOSED", "ACCESS"
 
 
 # Banken, die BankPocket über Enable Banking anbietet (Kürzel der Verbindung → Name bei Enable Banking)
-BANKEN = {"norwegian": "Bank Norwegian", "consorsbank": "Consorsbank", "n26": "N26", "revolut": "Revolut"}
+BANKEN = {"norwegian": "Bank Norwegian", "consorsbank": "Consorsbank", "n26": "N26", "revolut": "Revolut",
+          "commerzbank": "Commerzbank", "santander": "Santander", "bunq": "bunq", "wise": "Wise"}
 
 
 def _b64(daten: bytes) -> str:
@@ -170,8 +171,10 @@ class EnableBankingSource:
         treffer = [b for b in liste or [] if self.bank_name.lower() in str(b.get("name", "")).lower()]
         if not treffer:
             raise FetchError(f"{self.bank_name} wird von Enable Banking für {self.land} gerade nicht angeboten.")
-        genau = [b for b in treffer if str(b["name"]).lower() == self.bank_name.lower()]
-        wahl = (genau or treffer)[0]
+        gesucht = self.bank_name.lower()
+        # genauer Name zuerst, dann Namen, die damit beginnen, dann der kürzeste (nicht „Santander Consumer Bank“ für „Santander“)
+        wahl = min(treffer, key=lambda b: (str(b["name"]).lower() != gesucht, not str(b["name"]).lower().startswith(gesucht),
+                                           len(str(b["name"]))))
         try:  # so lange freigeben, wie die Bank erlaubt (Sekunden), einen Tag Luft lassen
             self.zugriff_tage = max(1, int(wahl["maximum_consent_validity"]) // 86400 - 1)
         except (KeyError, TypeError, ValueError):

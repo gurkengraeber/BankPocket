@@ -26,7 +26,7 @@ Die Bilder zeigen die mitgelieferten Demo-Daten (alles erfunden).
   comdirect und rund 2.000 weitere deutsche Banken), 4× täglich
 - **Freigabe per Banking-App** (ING-App, SecurePlus-App) – etwa alle 90 Tage einmal bestätigen
 - **Trade Republic** (Verrechnungskonto + Depot mit Plus/Minus seit Kauf und Wertverlauf je Position),
-  **Bank Norwegian** (Kreditkarte), **N26** und **Revolut** (alle drei über Enable Banking), **Binance** (Krypto in Euro) und **Splitwise**
+  **Bank Norwegian** (Kreditkarte), **N26**, **Revolut**, **Commerzbank**, **Santander**, **bunq** und **Wise** (alle über Enable Banking), **Binance** (Krypto in Euro) und **Splitwise**
 - **Budgets** je Kategorie mit Warnung bei 80 % und Hochrechnung bis Monatsende
 - **Übersicht** mit Kontogruppen, Salden, Gesamtsumme und **„vom Gehalt verfügbar“**: erkennt, wann dein Gehalt
   kommt (fester Tag oder z. B. letzter Bankarbeitstag, mit Wochenenden und Feiertagen), zeigt was pro Tag
@@ -133,7 +133,7 @@ wie die Quelle hergibt.
 | **ING, Consorsbank** | Zugangsdaten eingeben → in der ING- bzw. SecurePlus-App bestätigen, falls die Bank danach fragt. Consorsbank: als Login die Kontonummer mit `001` am Ende. Beide liefern nur die letzten 90 Tage |
 | **Sparkasse, Volksbank, DKB & Co.** | Bank per Name, Ort, BLZ oder IBAN suchen → Zugangsdaten eingeben → in der Banking-App (S-pushTAN, SecureGo plus, DKB-App …) bestätigen |
 | **Trade Republic** | Handynummer mit Ländervorwahl (+49 …) + PIN → Anmeldung in der Trade-Republic-App bestätigen; ist dort die Zwei-Faktor-Anmeldung per Authenticator eingerichtet, erst den Code eingeben, dann in der App bestätigen. Inoffizielle Schnittstelle (pytr) – kann brechen, wenn Trade Republic etwas ändert |
-| **Bank Norwegian, N26, Revolut** | Auf enablebanking.com kostenlos eine App für „Production“ registrieren, als Redirect-URL die in BankPocket angezeigte Adresse eintragen, das eigene Konto über „Activate by linking accounts“ freischalten, dann Application-ID und Inhalt der `.pem`-Datei in BankPocket einfügen. Ohne HTTPS landest du nach der Freigabe auf einer Fehlerseite – deren Adresse kopierst du in BankPocket. Freigabe etwa alle 90 bis 180 Tage. Die Anwendung gilt für alle drei Banken: Application-ID und Schlüssel müssen nur einmal eingegeben werden. N26 und Revolut sind noch nicht mit echten Konten erprobt – wird eine Bank von Enable Banking nicht angeboten, bleibt der CSV-Export (siehe unten) |
+| **Bank Norwegian, N26, Revolut, Commerzbank, Santander, bunq, Wise** | Auf enablebanking.com kostenlos eine App für „Production“ registrieren, als Redirect-URL die in BankPocket angezeigte Adresse eintragen, das eigene Konto über „Activate by linking accounts“ freischalten, dann Application-ID und Inhalt der `.pem`-Datei in BankPocket einfügen. Ohne HTTPS landest du nach der Freigabe auf einer Fehlerseite – deren Adresse kopierst du in BankPocket. Freigabe etwa alle 90 bis 180 Tage. Die Anwendung gilt für alle Banken: Application-ID und Schlüssel müssen nur einmal eingegeben werden. Alle außer Bank Norwegian sind noch nicht mit echten Konten erprobt – wird eine Bank von Enable Banking nicht angeboten, bleibt der CSV-Export (siehe unten) |
 | **Binance** | Lese-Schlüssel anlegen (Profil → API-Verwaltung, nur „Lesen“), Key + Secret einfügen |
 | **Splitwise** | Ohne Pro: als Konto anlegen und über „Stand eintragen“ den aktuellen Stand eintippen. Mit Splitwise Pro: auf secure.splitwise.com/apps eine App registrieren, den „API key“ einfügen |
 
@@ -281,7 +281,7 @@ Die Server-Festplatte zusätzlich zu verschlüsseln schützt bei Diebstahl des S
   Selbst eingetragene Buchungen lassen sich nachträglich ändern und löschen; ein eingetragener Anfangsstand
   zählt im Vermögensverlauf nicht als Zugewinn
 - **Konten umbenennen**: Stift oben rechts auf der Kontoseite
-- **CSV-Import** (PayPal, Norwegian, ING-, Consorsbank-, N26- und Revolut-Export): *Konto hinzufügen → Kontoauszug importieren*.
+- **CSV-Import** (PayPal, Norwegian, ING-, Consorsbank-, N26-, Revolut-, Wise-, bunq- und Commerzbank-Export): *Konto hinzufügen → Kontoauszug importieren*.
   Spaltennamen werden automatisch erkannt; weitere Aliasse in `bankpocket/csv_import.py`. Enthält der Auszug
   keinen Kontostand, trägst du ihn über „Stand eintragen“ nach – erst dann zählt das Konto zum Vermögen.
   N26 und Revolut trennen mit Komma (wird auch bei der Voreinstellung „;“ erkannt). Bei Revolut zählt die Gebühr zum
