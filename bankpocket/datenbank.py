@@ -8,6 +8,7 @@ mit ins (passwortverschlüsselte) Archiv, damit zur Wiederherstellung das Sicher
     python -m bankpocket.datenbank pruefen              öffnet die Datenbank mit dem Schlüssel und nennt Tabellen und Zeilen
     python -m bankpocket.datenbank abrufe               Zahl der gerade laufenden Abrufe (für das Update-Skript)
     python -m bankpocket.datenbank klartext-loeschen    Reste unverschlüsselter Kopien überschreiben und löschen
+    python -m bankpocket.datenbank verbindungen         Zustand der Bankverbindungen und Anmelde-Hinweise (ohne Umsätze)
 """
 from __future__ import annotations
 
@@ -129,6 +130,28 @@ def abrufe_laufen(settings: Settings) -> int:
         con.close()
 
 
+ANMELDE_HINWEISE = ("freigabe_noetig", "pin_falsch", "gesperrt", "fehler", "auswahl_noetig")
+
+
+def verbindungen(settings: Settings) -> list[str]:
+    """Zeilen zum Zustand der Bankverbindungen und der letzten Anmelde-Hinweise – ohne Umsätze, Salden oder Konten.
+    Zum Nachsehen, wann und wie oft eine Bank eine neue Anmeldung verlangt hat."""
+    con = roh_verbinden(_db_datei(settings), settings.db_schluessel(), nur_lesen=True)
+    zeilen = []
+    try:
+        for c in con.execute("select id, art, bank, status, letzte_freigabe, letzter_erfolg, letzter_versuch, "
+                             "fehler_in_folge, substr(meldung, 1, 120) from connections order by id"):
+            zeilen.append(f"Verbindung {c[0]} ({c[1]}/{c[2]}): Status {c[3]}, letzte Anmeldung {c[4]}, letzter Erfolg {c[5]}, "
+                          f"letzter Versuch {c[6]}, Fehler in Folge {c[7]}, Meldung „{c[8]}“")
+        marken = ",".join("?" for _ in ANMELDE_HINWEISE)
+        for h in con.execute(f"select erstellt_am, art, titel from hinweise where art in ({marken}) "
+                             "order by erstellt_am desc limit 20", ANMELDE_HINWEISE):
+            zeilen.append(f"Hinweis {h[0]}: {h[1]} – {h[2]}")
+    finally:
+        con.close()
+    return zeilen
+
+
 def klartext_reste(settings: Settings) -> list[Path]:
     """Unverschlüsselte Kopien der Datenbank in data/ (aus früheren Eingriffen oder der Umstellung)."""
     datei = _db_datei(settings)
@@ -185,6 +208,8 @@ def main() -> None:
             print(f"Verschlüsselte Datenbank ist lesbar: {erg['tabellen']} Tabellen, {erg['zeilen']} Zeilen.")
         elif befehl == "abrufe":
             print(abrufe_laufen(settings))
+        elif befehl == "verbindungen":
+            print("\n".join(verbindungen(settings)))
         elif befehl == "klartext-loeschen":
             klartext_loeschen(settings, ja="--ja" in sys.argv)
         else:

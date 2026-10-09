@@ -111,3 +111,18 @@ def test_app_laeuft_mit_verschluesselter_datenbank(tmp_path):
     assert r.status_code == 201
     assert [k["name"] for g in client.get("/api/accounts").json()["gruppen"] for k in g["konten"]] == ["Girokonto"]
     assert b"Girokonto" not in (settings.data_dir / "bankpocket.db").read_bytes()
+
+
+def test_verbindungsdiagnose_zeigt_nur_anmeldezustand(tmp_path):
+    from bankpocket.db import Notice
+    settings = _plain(tmp_path, db_key_file=tmp_path / "db.key")
+    datenbank.verschluesseln(settings, trotzdem=True)
+    with make_sessionmaker(settings.db_url, settings.db_schluessel())() as s:
+        s.add(Connection(art="trade_republic", bank="trade_republic", name="Trade Republic", blz="", server_url="",
+                         status="freigabe_noetig", meldung="Die Anmeldung ist abgelaufen", login_enc="x", pin_enc="y"))
+        s.add(Notice(art="freigabe_noetig", titel="Trade Republic: Abruf pausiert"))
+        s.add(Notice(art="neuer_vertrag", titel="Ist Streamflix ein Vertrag?"))
+        s.commit()
+    text = "\n".join(datenbank.verbindungen(settings))
+    assert "trade_republic/trade_republic" in text and "freigabe_noetig" in text and "Abruf pausiert" in text
+    assert "Streamflix" not in text and "Girokonto" not in text
