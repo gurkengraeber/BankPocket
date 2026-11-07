@@ -15,7 +15,8 @@ from ..contracts import (NICHT_AUSGABEN, TURNI, add_months, average_monthly_expe
                          naechster_termin, summary_by_turnus)
 from .. import logos
 from ..db import Account, ContractRow, TransactionRow
-from ..service import contract_status, ist_rueckzahlung, kuendigung, pruefe_kuendigungen, sync_contracts
+from ..service import (contract_status, finde_nachfolger, ist_rueckzahlung, kuendigung, nachfolger_uebernehmen,
+                       pruefe_kuendigungen, rhythmus_uebernehmen, sync_contracts)
 from .deps import get_ctx, get_db
 
 router = APIRouter(prefix="/api")
@@ -51,6 +52,13 @@ class ContractPatch(BaseModel):
     kontakt: str | None = Field(None, max_length=200)
     betrag: Decimal | None = Field(None, gt=0, le=1000000)  # Betrag je Zahlung (ohne Vorzeichen), vom Nutzer festgelegt
     betrag_automatisch: bool | None = None  # true: wieder aus den Buchungen erkennen
+    turnus: Turnus | None = None  # Rhythmus von Hand – bleibt, bis er wieder „automatisch“ gestellt wird
+    turnus_automatisch: bool | None = None  # true: Rhythmus wieder aus den Buchungen erkennen
+
+
+class Rueckfrage(BaseModel):
+    annehmen: bool
+    muster: str | None = None  # „derselbe Vertrag?“: welche Zahlungen gemeint sind
 
 
 # Felder, die sich auch wieder leeren lassen (None = „keine Angabe“)
@@ -122,7 +130,8 @@ def contract_out(c: ContractRow, heute: date) -> dict:
         "vertragsnummer": c.vertragsnummer or "", "notiz": c.notiz or "", "kuendigung": kuendigung(c, heute),
         "verwaltet_ueber": c.verwaltet_ueber or "", "verwaltet_name": c.verwaltet_name or "",
         "versichert": c.versichert or "", "selbstbeteiligung": c.selbstbeteiligung, "kontakt": c.kontakt or "",
-        "betrag_fix": bool(c.betrag_fix),
+        "betrag_fix": bool(c.betrag_fix), "turnus_fix": bool(c.turnus_fix),
+        "turnus_vorschlag": c.turnus_vorschlag or "" if c.gilt else "",
         "gekuendigt_zum": c.gekuendigt_zum, "jaehrlich": c.monatlich * 12, "anteil_prozent": c.anteil_prozent or 100, "mein_betrag": c.mein_betrag,
     }
 
@@ -189,6 +198,7 @@ def contract_detail(contract_id: int, s: Session = Depends(get_db), ctx=Depends(
     zurueck = sum((t.betrag for t in zahlungen if ist_rueckzahlung(c, t) and letzte and t.buchungsdatum >= letzte.buchungsdatum),
                   Decimal(0))
     return {**contract_out(c, heute),
+            "folgezahlung": finde_nachfolger(s, c, heute),
             "letzte_zahlung_betrag": letzte.betrag if letzte else None,
             "letzte_zahlung_netto": (letzte.betrag + zurueck) if letzte and zurueck else None,
             # tatsächlich gebucht – im Unterschied zu „jaehrlich“ (aktueller Betrag aufs Jahr hochgerechnet)
@@ -246,7 +256,7 @@ def patch_contract(contract_id: int, body: ContractPatch, s: Session = Depends(g
         raise HTTPException(404, "Vertrag nicht gefunden")
     gesetzt = body.model_fields_set
     for k, v in body.model_dump().items():
-        if k in ("betrag", "betrag_automatisch"):
+        if k in ("betrag", "betrag_automatisch", "turnus", "turnus_automatisch"):
             continue
         if k in gesetzt and (v is not None or k in LEERBAR):
             setattr(c, k, v.strip() if isinstance(v, str) else v)
@@ -256,6 +266,13 @@ def patch_contract(contract_id: int, body: ContractPatch, s: Session = Depends(g
     elif body.betrag_automatisch:
         c.betrag_fix = False
         sync_contracts(s, ctx.today())  # Betrag wieder aus den Buchungen (samt Rückzahlungen) bestimmen
+    if body.turnus is not None:  # Rhythmus von Hand: die Erkennung überschreibt ihn nicht
+        rhythmus_uebernehmen(c, body.turnus, fest=True)
+    elif body.turnus_automatisch:
+        c.turnus_fix, c.turnus_abgelehnt = False, ""
+        sync_contracts(s, ctx.today())  # Rhythmus wieder aus den Buchungen bestimmen
+        if c.turnus_vorschlag:  # man hat gerade „automatisch“ verlangt – also gleich übernehmen
+            rhythmus_uebernehmen(c, c.turnus_vorschlag, fest=False)
     if c.frist_wert and not c.frist_einheit:
         c.frist_einheit = "monate"
     if gesetzt & {"name", "kategorie"}:
@@ -277,6 +294,39 @@ def confirm_contract(contract_id: int, s: Session = Depends(get_db), ctx=Depends
     if not c or c.entfernt:
         raise HTTPException(404, "Vertrag nicht gefunden")
     c.bestaetigt = True
+    s.commit()
+    return contract_out(c, ctx.today())
+
+
+@router.post("/contracts/{contract_id}/rhythmus")
+def rhythmus_antwort(contract_id: int, body: Rueckfrage, s: Session = Depends(get_db), ctx=Depends(get_ctx)):
+    """Antwort auf „Läuft er jetzt in einem anderen Rhythmus?“ – übernehmen oder beim bisherigen bleiben."""
+    c = s.get(ContractRow, contract_id)
+    if not c or c.entfernt:
+        raise HTTPException(404, "Vertrag nicht gefunden")
+    if not c.turnus_vorschlag:
+        raise HTTPException(409, "Es gibt keinen Vorschlag mehr.")
+    if body.annehmen:
+        rhythmus_uebernehmen(c, c.turnus_vorschlag, fest=False)
+    else:
+        c.turnus_abgelehnt, c.turnus_vorschlag = c.turnus_vorschlag, ""
+    s.commit()
+    return contract_out(c, ctx.today())
+
+
+@router.post("/contracts/{contract_id}/folgezahlung")
+def folgezahlung_antwort(contract_id: int, body: Rueckfrage, s: Session = Depends(get_db), ctx=Depends(get_ctx)):
+    """Antwort auf „Ist das derselbe Vertrag?“ – die Zahlungen gehören dazu (jetzt und künftig) oder nicht."""
+    c = s.get(ContractRow, contract_id)
+    if not c or c.entfernt:
+        raise HTTPException(404, "Vertrag nicht gefunden")
+    f = finde_nachfolger(s, c, ctx.today())
+    if not f or f["muster"] != body.muster:
+        raise HTTPException(409, "Die Rückfrage gibt es nicht mehr.")
+    if body.annehmen:
+        nachfolger_uebernehmen(s, c, f["muster"], ctx.today())
+    else:
+        c.folge_abgelehnt = "\n".join(filter(None, [c.folge_abgelehnt, f["muster"]]))
     s.commit()
     return contract_out(c, ctx.today())
 

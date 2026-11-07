@@ -69,6 +69,19 @@ Was BankPocket wie rechnet und wo du es findest – zum Nachschlagen. Einrichtun
 - **Betrag von Hand ändern**: Auf der Vertragsseite den Betrag antippen (Stift). Vorschläge zum Antippen: zuletzt
   gezahlt, nach Rückzahlung. Ein eigener Betrag bleibt, auch wenn sich die Abbuchung ändert, bis man ihn über
   „Wieder automatisch erkennen“ zurückgibt. Er zählt überall (Monats- und Jahreskosten, Kalender, Analysen).
+- **Rhythmus von Hand ändern**: Auf der Vertragsseite „Alle 2 Wochen · …“ antippen (Stift) und den Rhythmus wählen.
+  Er bleibt, auch wenn die Erkennung etwas anderes sieht, bis man ihn über „Wieder automatisch erkennen“ zurückgibt;
+  der nächste Termin und die Hochrechnung aufs Jahr richten sich sofort danach.
+- **Rhythmuswechsel erkennen**: Kommen die jüngsten Zahlungen sauber in einem anderen Takt (bei Sparplänen reichen
+  drei Ausführungen, sonst vier Zahlungen), fragt BankPocket auf der Vertragsseite – und per Hinweis –: „Läuft er
+  jetzt jede Woche?“ Übernehmen oder so lassen; wer „so lassen“ sagt, wird dazu nicht erneut gefragt. Ein von Hand
+  gesetzter Rhythmus wird nur bei einem so klaren Wechsel infrage gestellt. Bei noch unbestätigten Vorschlägen
+  gilt weiter einfach die aktuelle Erkennung.
+- **„Ist das derselbe Vertrag?“**: Ist ein bestätigter Vertrag überfällig und kam seitdem eine Buchung, die fast
+  genauso aussieht – gleiche IBAN oder Gläubiger-ID, oder ein ähnlicher Name (anderer Bindestrich, Leerzeichen,
+  Rechtsform, angehängte Nummer) bei ähnlichem Betrag (±25 %) –, fragt BankPocket nach. „Ja“ ordnet die Buchungen dem
+  Vertrag zu, auch künftige in der neuen Schreibweise; „Nein“ merkt sich die Ablehnung. Das alles läuft als feste
+  Regeln bei jedem Abgleich mit, ganz ohne KI.
 - **Nicht berücksichtigen** (Schalter an jeder Buchung): Die Buchung zählt nirgends mit – weder bei „frei
   verfügbar“ noch in Analysen und Budgets (z. B. Auslagen, die du zurückbekommst).
 - **Gekündigt**: Auf der Vertragsseite „Ist gekündigt“ antippen – der Vertrag endet zum berechneten Termin, es wird

@@ -473,3 +473,36 @@ def test_bestaetigter_vertrag_bleibt_wenn_die_erkennung_die_gruppe_neu_schneidet
     assert (neu.schluessel, neu.vorkommen, neu.erwarteter_betrag, contract_status(neu, date(2026, 10, 4))[0]) == (
         "gegenpartei|-|IE30", 9, D("-20.00"), "aktiv")
     assert alt.nicht_mehr_erkannt and len(list(s.scalars(select(ContractRow)))) == 2
+
+
+def _sparplan(tag, betrag=-20, name="MSCI World"):
+    return Transaction(tag, D(str(betrag)), name, "Sparplan ausgeführt", buchungstext="TRADING_SAVINGSPLAN_EXECUTED",
+                       kategorie="Sparen")
+
+
+def test_sparplan_wechselt_nach_drei_buchungen_auf_woechentlich():
+    """Vorher alle zwei Wochen, dann umgestellt: Schon die dritte Buchung im neuen Takt zählt – nicht erst die vierte."""
+    from datetime import timedelta
+    zweiwoechentlich = [date(2026, 5, 1) + timedelta(days=14 * i) for i in range(9)]
+    umstellung = zweiwoechentlich[-1]
+    woechentlich = [umstellung + timedelta(days=7 * i) for i in range(1, 6)]
+    erwartet = ["zweiwoechentlich", "zweiwoechentlich", "woechentlich", "woechentlich", "woechentlich", "woechentlich"]
+    for n, soll in enumerate(erwartet):
+        daten = zweiwoechentlich + woechentlich[:n]
+        [c] = detect_contracts([_sparplan(d) for d in daten], daten[-1] + timedelta(days=2))
+        assert c.turnus == soll, f"{n} wöchentliche Buchungen nach der Umstellung"
+    assert c.naechste_faelligkeit == daten[-1] + timedelta(days=7)
+
+
+def test_juengster_rhythmus_und_aehnlichkeit():
+    from datetime import timedelta
+    from bankpocket.contracts import aehnlichkeit, juengster_rhythmus
+    alt = [date(2026, 1, 1) + timedelta(days=30 * i) for i in range(5)]
+    neu = [alt[-1] + timedelta(days=7 * i) for i in range(1, 4)]
+    assert juengster_rhythmus(alt) == "monatlich"
+    assert juengster_rhythmus(alt + neu) == "woechentlich"  # die letzten vier Termine, nicht der Durchschnitt
+    assert juengster_rhythmus(alt + neu[:1]) is None  # noch kein sauberer Takt
+    assert juengster_rhythmus(alt[:2]) is None  # zu wenig Zahlungen
+    assert aehnlichkeit("Gym-Club Berlin GmbH", "GymClub Berlin") >= 0.95
+    assert aehnlichkeit("Fitness First", "Fitness-First 4711") == 1.0
+    assert aehnlichkeit("Fitness First", "Stadtwerke Leipzig") < 0.5

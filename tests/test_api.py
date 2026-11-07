@@ -988,3 +988,143 @@ def test_health_nennt_die_version(client, monkeypatch, tmp_path):
     datei.write_text("def5678\n")  # neuer Code liegt auf der Platte, der laufende ist noch der alte
     h = client.get("/api/health").json()
     assert (h["version"], h["gestartet"]) == ("def5678", "abc1234")
+
+
+def _sparplan_buchungen(client, acc, daten, betrag=-20, name="MSCI World"):
+    from bankpocket.db import TransactionRow
+
+    with client.app.state.ctx.session_factory() as s:
+        for d in daten:
+            s.add(TransactionRow(account_id=acc, buchungsdatum=d, betrag=betrag, gegenpartei=name, hash=f"{acc}{d}{name}",
+                                 buchungstext="TRADING_SAVINGSPLAN_EXECUTED", verwendungszweck="Sparplan ausgeführt"))
+        s.commit()
+    client.post("/api/contracts/redetect")
+
+
+def _alle_vertraege(client, name):
+    v = client.get("/api/contracts").json()
+    return [c for k in ("ausgaben", "sparen") for g in v[k] for c in g["vertraege"] if name in c["name"]]
+
+
+def test_rhythmus_von_hand_bleibt_trotz_neuer_erkennung(tmp_path):
+    from datetime import timedelta
+    client = make_client(tmp_path, today=date(2026, 11, 7))
+    acc = make_account(client)
+    _sparplan_buchungen(client, acc, [date(2026, 10, 30) - timedelta(days=14 * i) for i in range(9, -1, -1)])  # alle 14 Tage
+    vertraege_bestaetigen(client)
+    [v] = _alle_vertraege(client, "MSCI")
+    assert (v["turnus"], v["turnus_fix"]) == ("zweiwoechentlich", False)
+
+    r = client.patch(f"/api/contracts/{v['id']}", json={"turnus": "woechentlich"}).json()
+    assert (r["turnus"], r["turnus_fix"], r["turnus_vorschlag"]) == ("woechentlich", True, "")
+    assert r["naechste_faelligkeit"] == "2026-11-06"  # eine Woche nach der letzten Zahlung (30.10.)
+    client.post("/api/contracts/redetect")
+    [v] = _alle_vertraege(client, "MSCI")
+    assert (v["turnus"], v["turnus_fix"]) == ("woechentlich", True)  # die Erkennung überschreibt es nicht
+
+    # wieder automatisch: gilt, was die Buchungen zeigen
+    r = client.patch(f"/api/contracts/{v['id']}", json={"turnus_automatisch": True}).json()
+    assert (r["turnus"], r["turnus_fix"]) == ("zweiwoechentlich", False)
+
+
+def test_neuer_rhythmus_wird_bei_bestaetigtem_vertrag_vorgeschlagen(tmp_path):
+    from datetime import timedelta
+    heute = date(2026, 11, 7)
+    client = make_client(tmp_path, today=heute)
+    acc = make_account(client)
+    zweiw = [date(2026, 6, 19) + timedelta(days=14 * i) for i in range(9)]  # bis 9.10.
+    _sparplan_buchungen(client, acc, zweiw)
+    vertraege_bestaetigen(client)
+    [v] = _alle_vertraege(client, "MSCI")
+
+    _sparplan_buchungen(client, acc, [zweiw[-1] + timedelta(days=7)])  # erst eine wöchentliche: noch kein Muster
+    [v] = _alle_vertraege(client, "MSCI")
+    assert (v["turnus"], v["turnus_vorschlag"]) == ("zweiwoechentlich", "")
+    _sparplan_buchungen(client, acc, [zweiw[-1] + timedelta(days=14), zweiw[-1] + timedelta(days=21)])
+    [v] = _alle_vertraege(client, "MSCI")
+    # drei Buchungen im neuen Takt: gefragt wird, geändert noch nichts
+    assert (v["turnus"], v["turnus_vorschlag"]) == ("zweiwoechentlich", "woechentlich")
+
+    r = client.post(f"/api/contracts/{v['id']}/rhythmus", json={"annehmen": True}).json()
+    assert (r["turnus"], r["turnus_vorschlag"], r["turnus_fix"]) == ("woechentlich", "", False)
+    assert r["naechste_faelligkeit"] == str(zweiw[-1] + timedelta(days=28))
+    assert client.post(f"/api/contracts/{v['id']}/rhythmus", json={"annehmen": True}).status_code == 409
+
+
+def test_abgelehnter_rhythmus_kommt_nicht_wieder(tmp_path):
+    from datetime import timedelta
+    client = make_client(tmp_path, today=date(2026, 11, 7))
+    acc = make_account(client)
+    zweiw = [date(2026, 6, 19) + timedelta(days=14 * i) for i in range(9)]
+    _sparplan_buchungen(client, acc, zweiw)
+    vertraege_bestaetigen(client)
+    _sparplan_buchungen(client, acc, [zweiw[-1] + timedelta(days=7 * i) for i in (1, 2, 3)])
+    [v] = _alle_vertraege(client, "MSCI")
+    assert v["turnus_vorschlag"] == "woechentlich"
+    r = client.post(f"/api/contracts/{v['id']}/rhythmus", json={"annehmen": False}).json()
+    assert (r["turnus"], r["turnus_vorschlag"]) == ("zweiwoechentlich", "")
+    _sparplan_buchungen(client, acc, [zweiw[-1] + timedelta(days=28)])
+    [v] = _alle_vertraege(client, "MSCI")
+    assert (v["turnus"], v["turnus_vorschlag"]) == ("zweiwoechentlich", "")
+
+
+def test_rhythmus_hinweis_wird_gemeldet(tmp_path):
+    from datetime import timedelta
+    from bankpocket.db import Notice
+    from bankpocket.service import melde_vertragsereignisse, sync_contracts
+    heute = date(2026, 11, 7)
+    client = make_client(tmp_path, today=heute)
+    acc = make_account(client)
+    zweiw = [date(2026, 6, 19) + timedelta(days=14 * i) for i in range(9)]
+    _sparplan_buchungen(client, acc, zweiw)
+    vertraege_bestaetigen(client)
+    _sparplan_buchungen(client, acc, [zweiw[-1] + timedelta(days=7 * i) for i in (1, 2, 3)])
+    ctx = client.app.state.ctx
+    with ctx.session_factory() as s:
+        erg = sync_contracts(s, heute)
+        melde_vertragsereignisse(ctx.notifier, s, erg, heute, push=False)
+        melde_vertragsereignisse(ctx.notifier, s, erg, heute, push=False)  # ein zweites Mal meldet nichts neu
+        s.commit()
+        hinweise = list(s.scalars(select(Notice).where(Notice.art == "rhythmus")))
+    [h] = hinweise
+    assert "MSCI World" in h.titel and "pro Woche" in h.text and "alle zwei Wochen" in h.text
+
+
+def test_derselbe_vertrag_nach_geaenderter_schreibweise(tmp_path):
+    """Bindestrich in der Abbuchung weg: Die App fragt, ob es derselbe Vertrag ist – nach „Ja“ ist er wieder aktiv."""
+    client = make_client(tmp_path, today=date(2026, 10, 4))
+    acc = make_account(client)
+    _buchungen(client, acc, *[(date(2026, m, 27), -20, "Gym-Club Berlin", "") for m in (5, 6, 7, 8)])
+    vertraege_bestaetigen(client)
+    [v] = _alle_vertraege(client, "Gym")
+    assert v["status"] == "ueberfaellig"
+    assert client.get(f"/api/contracts/{v['id']}").json()["folgezahlung"] is None
+
+    _buchungen(client, acc, (date(2026, 9, 28), -20, "GymClub Berlin", ""),
+               (date(2026, 9, 28), -20, "Stadtwerke Leipzig", ""))  # eine andere Zahlung passt nicht dazu
+    f = client.get(f"/api/contracts/{v['id']}").json()["folgezahlung"]
+    assert [(b["datum"], b["gegenpartei"]) for b in f["buchungen"]] == [("2026-09-28", "GymClub Berlin")]
+
+    r = client.post(f"/api/contracts/{v['id']}/folgezahlung", json={"annehmen": True, "muster": f["muster"]}).json()
+    assert (r["status"], r["letzte_zahlung"], r["naechste_faelligkeit"]) == ("aktiv", "2026-09-28", "2026-10-28")
+    detail = client.get(f"/api/contracts/{v['id']}").json()
+    assert detail["folgezahlung"] is None and len(detail["zahlungen"]) == 5
+    # künftige Zahlungen in der neuen Schreibweise kommen von selbst dazu – ohne zweiten Vorschlag
+    _buchungen(client, acc, (date(2026, 10, 28), -20, "GymClub Berlin", ""))
+    assert client.get("/api/contracts").json()["vorschlaege"] == []
+    assert _alle_vertraege(client, "Gym")[0]["letzte_zahlung"] == "2026-10-28"
+
+
+def test_derselbe_vertrag_abgelehnt_wird_nicht_erneut_gefragt(tmp_path):
+    client = make_client(tmp_path, today=date(2026, 10, 4))
+    acc = make_account(client)
+    _buchungen(client, acc, *[(date(2026, m, 27), -20, "Gym-Club Berlin", "") for m in (5, 6, 7, 8)],
+               (date(2026, 9, 28), -20, "GymClub Berlin", ""))
+    vertraege_bestaetigen(client)
+    [v] = _alle_vertraege(client, "Gym")
+    f = client.get(f"/api/contracts/{v['id']}").json()["folgezahlung"]
+    assert f
+    assert client.post(f"/api/contracts/{v['id']}/folgezahlung", json={"annehmen": False, "muster": "falsch"}).status_code == 409
+    client.post(f"/api/contracts/{v['id']}/folgezahlung", json={"annehmen": False, "muster": f["muster"]})
+    assert client.get(f"/api/contracts/{v['id']}").json()["folgezahlung"] is None
+    assert _alle_vertraege(client, "Gym")[0]["status"] == "ueberfaellig"

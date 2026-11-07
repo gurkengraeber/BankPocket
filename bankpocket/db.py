@@ -179,6 +179,12 @@ class ContractRow(Base):
     nicht_mehr_erkannt: Mapped[bool] = mapped_column(Boolean, default=False)
     bestaetigt: Mapped[bool] = mapped_column(Boolean, default=False)  # Nutzer hat „ja, das ist ein Vertrag“ gesagt
     betrag_fix: Mapped[bool] = mapped_column(Boolean, default=False)  # Betrag vom Nutzer festgelegt – bleibt so
+    turnus_fix: Mapped[bool] = mapped_column(Boolean, default=False)  # Rhythmus vom Nutzer festgelegt – bleibt so
+    # Die Zahlungen laufen seit Kurzem in einem anderen Rhythmus: erst nach Rückfrage übernommen
+    turnus_vorschlag: Mapped[str] = mapped_column(String(16), default="")
+    turnus_abgelehnt: Mapped[str] = mapped_column(String(16), default="")  # dieser Vorschlag war nicht gewollt
+    # Muster von Zahlungen, die laut Nutzer nicht zu diesem Vertrag gehören (Rückfrage „derselbe Vertrag?“), je Zeile
+    folge_abgelehnt: Mapped[str] = mapped_column(Text, default="")
     # Selbst angelegte Verträge: Woran passende Buchungen erkannt werden (siehe contracts.muster)
     muster: Mapped[str | None] = mapped_column(String(300))
     # Vom Nutzer gepflegte Vertragsdaten: was es ist, bis wann es läuft und wie man herauskommt

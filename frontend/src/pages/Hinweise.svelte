@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Bell, CircleAlert, Hourglass, Smartphone, Sparkles, TrendingUp, TriangleAlert } from '@lucide/svelte';
+  import { Bell, CircleAlert, Hourglass, Link2, Repeat, Smartphone, Sparkles, TrendingUp, TriangleAlert } from '@lucide/svelte';
   import { onMount } from 'svelte';
   import Header from '../components/Header.svelte';
   import Laden from '../components/Laden.svelte';
@@ -16,6 +16,8 @@
     fehler: [CircleAlert, 'text-neg bg-neg-soft'],
     neuer_vertrag: [Sparkles, 'text-accent bg-accent-soft'],
     betrag_gestiegen: [TrendingUp, 'text-warn bg-warn-soft'],
+    rhythmus: [Repeat, 'text-accent bg-accent-soft'],
+    gleicher_vertrag: [Link2, 'text-accent bg-accent-soft'],
     ueberfaellig: [Hourglass, 'text-warn bg-warn-soft'],
     sicherung: [CircleAlert, 'text-neg bg-neg-soft'],
     kuendigen: [Hourglass, 'text-accent bg-accent-soft'],

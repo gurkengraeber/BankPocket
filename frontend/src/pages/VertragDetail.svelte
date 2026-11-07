@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BellRing, CalendarDays, Check, ChevronRight, Hourglass, Pencil, Plus, Search, TrendingDown, TrendingUp, Undo2 } from '@lucide/svelte';
+  import { BellRing, CalendarDays, Check, ChevronRight, Hourglass, Link2, Pencil, Plus, Repeat, Search, TrendingDown, TrendingUp, Undo2 } from '@lucide/svelte';
   import { onMount } from 'svelte';
   import Amount from '../components/Amount.svelte';
   import BuchungDetail from '../components/BuchungDetail.svelte';
@@ -139,6 +139,37 @@
     betragOffen = false;
   }
 
+  // Rhythmus von Hand: bleibt stehen, bis man ihn wieder „automatisch“ stellt. Ändert er sich von selbst, fragt die App.
+  const RHYTHMEN: [string, string][] = Object.entries(TURNUS);
+  const RHYTHMUS_TEXT: Record<string, string> = {
+    woechentlich: 'jede Woche', zweiwoechentlich: 'alle zwei Wochen', vierwoechentlich: 'alle vier Wochen', halbmonatlich: 'zweimal im Monat',
+    monatlich: 'jeden Monat', quartalsweise: 'jedes Quartal', halbjaehrlich: 'halbjährlich', jaehrlich: 'jedes Jahr',
+  };
+  let rhythmusOffen = $state(false);
+
+  async function rhythmusWaehlen(turnus: string) {
+    await aendern({ turnus });
+    rhythmusOffen = false;
+  }
+
+  async function rhythmusAutomatisch() {
+    await aendern({ turnus_automatisch: true });
+    rhythmusOffen = false;
+  }
+
+  // Antwort auf „Läuft er jetzt anders?“ bzw. „Ist das derselbe Vertrag?“
+  async function antworten(was: 'rhythmus' | 'folgezahlung', annehmen: boolean) {
+    try {
+      const muster = was === 'folgezahlung' ? v.folgezahlung.muster : undefined;
+      await api(`/contracts/${id}/${was}`, { method: 'POST', body: { annehmen, muster } });
+      await laden();
+      toast(annehmen ? (was === 'rhythmus' ? `Läuft jetzt ${RHYTHMUS_TEXT[v.turnus]}` : 'Zahlung zugeordnet') : 'Okay, bleibt so');
+    } catch (e) {
+      fehler(e);
+      await laden();
+    }
+  }
+
   // Vertragsdaten: Art, Laufzeit, Kündigungsfrist – trägt man selbst ein, die Bank weiß davon nichts.
   // Alles Übliche per Knopf; getippt wird nur, wo es nicht anders geht.
   const ARTEN: [string, string][] = ['Abo', 'Mitgliedschaft', 'Mobilfunk', 'Internet', 'Strom / Gas', 'Miete', 'Spende', 'Kredit / Rate', 'Sparplan'].map((a) => [a, a]);
@@ -224,9 +255,10 @@
         <Amount wert={Math.abs(Number(v.betrag))} farbig={v.typ === 'einnahme'} klasse="text-[38px] font-bold tracking-tight" />
         <Pencil size={16} class="text-muted" />
       </button>
-      <div class="text-[15px] text-muted">
-        {TURNUS[v.turnus]}{#if v.turnus !== 'monatlich'} · Ø <Amount wert={v.monatlich} /> pro Monat{/if}
-      </div>
+      <button class="flex items-center gap-1.5 text-[15px] text-muted" onclick={() => (rhythmusOffen = true)} aria-label="Rhythmus ändern">
+        <span>{TURNUS[v.turnus]}{#if v.turnus !== 'monatlich'} · Ø <Amount wert={v.monatlich} /> pro Monat{/if}</span>
+        <Pencil size={14} class="text-muted" />
+      </button>
       <div class="mt-3 grid w-full max-w-sm grid-cols-2 gap-2 text-left">
         <div class="rounded-2xl bg-card px-3.5 py-2.5">
           <div class="text-[12px] text-muted">Aufs Jahr gerechnet</div>
@@ -246,6 +278,9 @@
         {#if v.betrag_fix}
           <span class="pill bg-card-hi text-muted">Betrag von dir festgelegt</span>
         {/if}
+        {#if v.turnus_fix}
+          <span class="pill bg-card-hi text-muted">Rhythmus von dir festgelegt</span>
+        {/if}
         {#if v.gekuendigt_zum}
           <span class="pill bg-card-hi text-muted"><Check size={14} /> Gekündigt zum {datum(v.gekuendigt_zum)}</span>
         {/if}
@@ -263,6 +298,43 @@
         {/if}
       </div>
     </div>
+
+    {#if v.turnus_vorschlag}
+      <div class="karte mt-4 p-4">
+        <div class="flex items-start gap-3">
+          <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent"><Repeat size={20} /></span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[16px] font-semibold">Läuft er jetzt {RHYTHMUS_TEXT[v.turnus_vorschlag]}?</div>
+            <p class="mt-0.5 text-[14px] text-muted">Die letzten Zahlungen kamen {RHYTHMUS_TEXT[v.turnus_vorschlag]} – bisher steht hier „{RHYTHMUS_TEXT[v.turnus]}“.</p>
+          </div>
+        </div>
+        <div class="mt-3 grid grid-cols-2 gap-2">
+          <button class="knopf-primaer" onclick={() => antworten('rhythmus', true)}>Ja, übernehmen</button>
+          <button class="knopf-sekundaer" onclick={() => antworten('rhythmus', false)}>Nein, so lassen</button>
+        </div>
+      </div>
+    {/if}
+
+    {#if v.folgezahlung}
+      {@const f = v.folgezahlung.buchungen[v.folgezahlung.buchungen.length - 1]}
+      <div class="karte mt-4 p-4">
+        <div class="flex items-start gap-3">
+          <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent"><Link2 size={20} /></span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[16px] font-semibold">Ist das derselbe Vertrag?</div>
+            <p class="mt-0.5 text-[14px] text-muted">
+              Nach der letzten Zahlung kam{v.folgezahlung.buchungen.length > 1 ? 'en' : ''} {v.folgezahlung.buchungen.length > 1 ? `${v.folgezahlung.buchungen.length} Buchungen` : 'eine Buchung'} von „{f.gegenpartei || f.verwendungszweck}“ –
+              ähnlich genug, dass es dieser Vertrag sein könnte.
+            </p>
+            <div class="mt-1.5 text-[14px]">{datum(f.datum)} · <Amount wert={f.betrag} vorzeichen farbig /></div>
+          </div>
+        </div>
+        <div class="mt-3 grid grid-cols-2 gap-2">
+          <button class="knopf-primaer" onclick={() => antworten('folgezahlung', true)}>Ja, gehört dazu</button>
+          <button class="knopf-sekundaer" onclick={() => antworten('folgezahlung', false)}>Nein, ein anderer</button>
+        </div>
+      </div>
+    {/if}
 
     <div class="karte mt-6 divide-y divide-line text-[16px]">
       <a class="flex items-center justify-between gap-3 px-4 py-3.5 active:bg-card-hi" href="#/kalender">
@@ -501,6 +573,19 @@
       {/each}
     </div>
   {/if}
+</Sheet>
+
+<Sheet bind:offen={rhythmusOffen} titel="Rhythmus">
+  <div class="space-y-4">
+    <p class="text-[14px] text-muted">
+      Wie oft wird gezahlt? Der Rhythmus bestimmt den nächsten Termin und die Hochrechnung aufs Jahr.
+      {v?.turnus_fix ? 'Dein Rhythmus gilt, bis du ihn wieder automatisch erkennen lässt.' : 'BankPocket erkennt ihn aus den Buchungen – hier kannst du ihn selbst festlegen.'}
+    </p>
+    <Auswahl optionen={RHYTHMEN} wert={v?.turnus} onwahl={rhythmusWaehlen} />
+    {#if v?.turnus_fix}
+      <button type="button" class="w-full py-2 text-[15px] font-medium text-accent" onclick={rhythmusAutomatisch}>Wieder automatisch erkennen</button>
+    {/if}
+  </div>
 </Sheet>
 
 <Sheet bind:offen={betragOffen} titel="Betrag ändern">

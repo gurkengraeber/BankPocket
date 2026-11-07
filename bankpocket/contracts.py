@@ -15,6 +15,7 @@ import re
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
+from difflib import SequenceMatcher
 from statistics import median
 
 from .models import MONATE, WOCHEN_TAGE, Contract, Transaction
@@ -311,6 +312,39 @@ def detect_turnus(dates: list[date]) -> str | None:
     return None
 
 
+# Rhythmen, die man an wenigen Abständen sicher unterscheiden kann – „alle 4 Wochen“ und „2× im Monat“ liegen zu dicht
+# an „alle 2 Wochen“ bzw. „monatlich“
+RHYTHMUS_EINDEUTIG = ("woechentlich", "zweiwoechentlich", "monatlich", "quartalsweise", "halbjaehrlich", "jaehrlich")
+
+
+def juengster_rhythmus(dates: list[date], anzahl: int = 4) -> str | None:
+    """Rhythmus der jüngsten Zahlungen: Alle Abstände zwischen den letzten `anzahl` Terminen passen zum selben
+    Turnus. Der Median über die ganze Reihe hinkt nach einer Umstellung wochenlang hinterher – das hier nicht."""
+    tage = sorted(set(dates))[-anzahl:]
+    if len(tage) < anzahl:
+        return None
+    abstaende = [(b - a).days for a, b in zip(tage, tage[1:])]
+    for name in RHYTHMUS_EINDEUTIG:
+        _, soll, tol, _ = TURNI[name]
+        if all(abs(g - soll) <= tol for g in abstaende):
+            return name
+    return None
+
+
+def aehnlichkeit(a: str, b: str) -> float:
+    """0–1, wie ähnlich sich zwei Namen sind – unempfindlich für Bindestriche, Leerzeichen, Zahlen und Rechtsform
+    („Fitness-First GmbH“ ≈ „Fitness First“)."""
+    a, b = normalize(a), normalize(b)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    ta, tb = set(a.split()), set(b.split())
+    wortmenge = len(ta & tb) / len(ta | tb)
+    ka, kb = a.replace(" ", ""), b.replace(" ", "")
+    return max(wortmenge, SequenceMatcher(None, ka, kb).ratio())
+
+
 def _neues_gehalt(txs: list[Transaction], dates: list[date]) -> str | None:
     """Ausgewiesenes Gehalt (Buchungstext oder Verwendungszweck) gilt schon nach zwei Monaten als monatlich –
     sonst fehlt nach einem Jobwechsel lange die Gehaltsanzeige."""
@@ -486,6 +520,10 @@ def _build_sparplan(txs: list[Transaction], schluessel: str, today: date) -> Con
             c.sicherheit = max(c.sicherheit, 90)
         return c
     turnus = "woechentlich" if abstand <= 9 else "zweiwoechentlich" if abstand <= 20 else "monatlich"
+    # Nach einer Umstellung zählen die letzten drei Ausführungen (zwei Abstände), nicht der Median über Monate
+    jung = juengster_rhythmus(dates, 3)
+    if jung in ("woechentlich", "zweiwoechentlich", "monatlich"):
+        turnus = jung
     if turnus == "zweiwoechentlich" and _feste_monatstage([d.day for d in dates[-8:]]) <= 2:
         turnus = "halbmonatlich"  # 24 statt 26 Ausführungen im Jahr
     last, prev = txs[-1], txs[-2].betrag

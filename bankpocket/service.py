@@ -12,8 +12,9 @@ from decimal import Decimal
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from .contracts import (FALLBACK, PRICE_CHANGE_THRESHOLD, SCHWANKENDE_ERTRAEGE, SCHWANKUNG_MAX, TURNI, compute_status,
-                        add_months, detect_contracts, muster, naechster_termin)
+from .contracts import (FALLBACK, KEINE_IBAN, PRICE_CHANGE_THRESHOLD, SCHWANKENDE_ERTRAEGE, SCHWANKUNG_MAX, TURNI,
+                        aehnlichkeit, compute_status, add_months, detect_contracts, juengster_rhythmus, muster,
+                        naechster_termin, paypal_merchant)
 from .db import Account, Balance, ContractRow, Holding, Price, TransactionRow, kv_get
 from .models import Transaction
 
@@ -316,6 +317,8 @@ VERTRAGS_KONTOTYPEN = ("giro", "kreditkarte", "spar")
 class SyncErgebnis:
     neu: list[ContractRow] = field(default_factory=list)
     erhoeht: list[ContractRow] = field(default_factory=list)
+    rhythmus: list[ContractRow] = field(default_factory=list)  # neuer Rhythmus vorgeschlagen
+    nachfolger: list[tuple[ContractRow, dict]] = field(default_factory=list)  # „derselbe Vertrag?“
     aktualisiert: int = 0
 
     def als_dict(self) -> dict:
@@ -361,6 +364,7 @@ def sync_contracts(session: Session, today: date | None = None) -> SyncErgebnis:
                 continue  # die Zahlungen laufen als Nachzügler beim bestätigten Vertrag weiter
         found.add(d.schluessel)
         letzte = d.transaktionen[-1].buchungsdatum
+        neu_angelegt = row is None
         if row is None:
             row = ContractRow(schluessel=d.schluessel, quelle="auto", name=d.name, kategorie=d.kategorie)
             session.add(row)
@@ -371,13 +375,18 @@ def sync_contracts(session: Session, today: date | None = None) -> SyncErgebnis:
                 continue
         if not row.bearbeitet:
             row.name, row.kategorie = d.name, d.kategorie
-        row.turnus, row.typ, row.methode = d.turnus, d.typ, d.methode
+        if neu_angelegt or not row.gilt:
+            row.turnus = d.turnus
+            row.turnus_vorschlag = ""
+        else:
+            _rhythmus_vorschlag(row, d)
+        row.typ, row.methode = d.typ, d.methode
         row.vorkommen, row.sicherheit = d.vorkommen, d.sicherheit
         if not row.betrag_fix:  # einen vom Nutzer festgelegten Betrag überschreibt die Erkennung nicht
             row.erwarteter_betrag = d.erwarteter_betrag
             row.betrag_gestiegen, row.vorheriger_betrag = d.betrag_gestiegen, d.vorheriger_betrag
         row.letzte_zahlung = letzte
-        row.naechste_faelligkeit = d.naechste_faelligkeit
+        row.naechste_faelligkeit = naechster_termin(letzte, row.turnus)  # im Rhythmus, der gerade gilt
         row.nicht_mehr_erkannt = False
         session.flush()
         for t in d.transaktionen:
@@ -399,8 +408,105 @@ def sync_contracts(session: Session, today: date | None = None) -> SyncErgebnis:
     # teurer geworden mit einer Zahlung, die seit dem letzten Abgleich dazugekommen ist
     ergebnis.erhoeht = [c for c in aktive if c.betrag_gestiegen and c.vorheriger_betrag is not None
                         and c.id in letzte_bisher and letzte_bisher[c.id] != c.letzte_zahlung]
+    # offene Rückfragen jedes Mal melden – den Hinweis gibt es dank seines Schlüssels trotzdem nur einmal
+    ergebnis.rhythmus = [c for c in aktive if c.gilt and c.turnus_vorschlag]
+    for c in aktive:
+        if (f := finde_nachfolger(session, c, today, rows)):
+            ergebnis.nachfolger.append((c, f))
     session.flush()
     return ergebnis
+
+
+def _rhythmus_vorschlag(row: ContractRow, d) -> None:
+    """Ein bestätigter Vertrag behält seinen Rhythmus, bis man zustimmt. Hat der Nutzer ihn selbst festgelegt, genügt
+    dafür nicht die allgemeine Erkennung: Erst wenn die jüngsten Zahlungen sauber im anderen Takt kommen, wird gefragt.
+    """
+    daten = [t.buchungsdatum for t in d.transaktionen]
+    neu = juengster_rhythmus(daten, 3 if d.methode == "sparplan" else 4) if row.turnus_fix else d.turnus
+    if not neu or neu == row.turnus or neu == row.turnus_abgelehnt:
+        row.turnus_vorschlag = ""
+    else:
+        row.turnus_vorschlag = neu
+
+
+def rhythmus_uebernehmen(c: ContractRow, turnus: str, fest: bool) -> None:
+    """Rhythmus eines Vertrags setzen – `fest`: vom Nutzer gewählt, die Erkennung überschreibt ihn nicht mehr."""
+    c.turnus, c.turnus_fix, c.turnus_vorschlag, c.turnus_abgelehnt = turnus, fest, "", ""
+    if c.letzte_zahlung:
+        c.naechste_faelligkeit = naechster_termin(c.letzte_zahlung, turnus)
+
+
+FOLGE_BETRAG = Decimal("0.25")  # eine Folgezahlung darf so viel teurer oder billiger sein (Preiserhöhung)
+FOLGE_NAME = 0.8  # so ähnlich muss der Name sein, wenn weder IBAN noch Gläubiger-ID übereinstimmen
+
+
+def finde_nachfolger(session: Session, c: ContractRow, heute: date, rows: list[TransactionRow] | None = None) -> dict | None:
+    """„Ist das derselbe Vertrag?“ – ein bestätigter Vertrag ist überfällig, aber seit der letzten Zahlung ist eine
+    Buchung eingegangen, die fast genauso aussieht (anderer Bindestrich, neue Mandatsreferenz, leicht anderer Betrag).
+    Gefunden wird sie ohne KI: gleiche IBAN oder Gläubiger-ID, sonst ein ähnlicher Name – und der Betrag passt."""
+    if c.quelle != "auto" or not c.gilt or c.entfernt or not c.letzte_zahlung:
+        return None
+    status, _ = contract_status(c, heute)
+    if status == "aktiv" or (heute - c.letzte_zahlung).days > 400:
+        return None
+    if rows is None:
+        rows = list(session.scalars(select(TransactionRow).join(Account).where(
+            TransactionRow.intern.is_(False), Account.typ.in_(VERTRAGS_KONTOTYPEN), Account.quelle != "manuell")))
+    ungeprueft = {r.id for r in session.scalars(select(ContractRow).where(
+        ContractRow.quelle == "auto", ContractRow.bestaetigt.is_(False), ContractRow.id != c.id))}
+    eigene = [r for r in rows if r.contract_id == c.id]
+    erwartet = abs(c.erwarteter_betrag)
+    if not erwartet:
+        return None
+    namen = {c.name} | {n for r in eigene for n in (r.gegenpartei, paypal_merchant(_to_dataclass(r))) if n}
+    ibans = {r.iban_gegenpartei.strip().upper() for r in eigene if r.iban_gegenpartei.strip().lower() not in KEINE_IBAN}
+    glaeubiger = {r.glaeubiger_id for r in eigene if r.glaeubiger_id}
+    abgelehnt = set(filter(None, (c.folge_abgelehnt or "").split("\n")))
+    gruppen: dict[str, list[tuple[float, TransactionRow]]] = {}
+    for r in rows:
+        if (r.buchungsdatum <= c.letzte_zahlung or r.buchungsdatum > heute or r.vertrag_fix or r.rueckzahlung
+                or r.betrag * c.erwarteter_betrag <= 0 or (r.contract_id is not None and r.contract_id not in ungeprueft)):
+            continue
+        if abs(abs(r.betrag) - erwartet) > erwartet * FOLGE_BETRAG:
+            continue
+        m = muster(_to_dataclass(r))
+        if not m or m in abgelehnt or _passt(c.schluessel, m):
+            continue  # gleiche Gruppe: die kommt ohnehin als Nachzügler dazu
+        if (r.iban_gegenpartei.strip().upper() in ibans and r.iban_gegenpartei.strip().lower() not in KEINE_IBAN) \
+                or (r.glaeubiger_id and r.glaeubiger_id in glaeubiger):
+            punkte = 1.0
+        else:
+            punkte = max((aehnlichkeit(n, g) for n in namen for g in (r.gegenpartei, paypal_merchant(_to_dataclass(r))) if g),
+                         default=0.0)
+        if punkte >= FOLGE_NAME:
+            gruppen.setdefault(m, []).append((punkte, r))
+    if not gruppen:
+        return None
+    m, treffer = max(gruppen.items(), key=lambda g: (max(p for p, _ in g[1]), max(r.buchungsdatum for _, r in g[1])))
+    zeilen = sorted((r for _, r in treffer), key=lambda r: r.buchungsdatum)
+    return {"muster": m, "buchungen": [{"id": r.id, "datum": r.buchungsdatum, "betrag": r.betrag,
+                                        "gegenpartei": r.gegenpartei, "verwendungszweck": r.verwendungszweck}
+                                       for r in zeilen]}
+
+
+def nachfolger_uebernehmen(session: Session, c: ContractRow, muster_: str, heute: date) -> int:
+    """Ja, derselbe Vertrag: Die Buchungen der neuen Schreibweise gehören dazu – jetzt und künftig."""
+    f = finde_nachfolger(session, c, heute)
+    if not f or f["muster"] != muster_:
+        return 0
+    ids = [b["id"] for b in f["buchungen"]]
+    betroffen = {r.contract_id for r in session.scalars(select(TransactionRow).where(TransactionRow.id.in_(ids)))
+                 if r.contract_id}
+    session.execute(update(TransactionRow).where(TransactionRow.id.in_(ids))
+                    .values(contract_id=c.id, vertrag_fix=True))
+    session.flush()
+    for cid in betroffen:  # der Vorschlag, den die Erkennung daraus gebaut hatte, ist damit erledigt
+        o = session.get(ContractRow, cid)
+        if o and not o.gilt and not session.scalar(select(func.count()).select_from(TransactionRow)
+                                                   .where(TransactionRow.contract_id == cid)):
+            o.entfernt = True
+    sync_contracts(session, heute)
+    return len(ids)
 
 
 def _passt(schluessel: str | None, m: str) -> bool:
@@ -580,6 +686,15 @@ def contract_status(c: ContractRow, today: date | None = None) -> tuple[str, int
 
 
 def melde_vertragsereignisse(notifier, session: Session, erg: SyncErgebnis, heute: date, push: bool = True) -> None:
+    for c in erg.rhythmus:
+        notifier.hinweis(session, "rhythmus", f"{c.name}: neuer Rhythmus?",
+                         f"Die letzten Zahlungen kamen {TURNUS_TEXT[c.turnus_vorschlag]} (bisher {TURNUS_TEXT[c.turnus]}).",
+                         link=f"#/vertrag/{c.id}", schluessel=f"rhythmus|{c.id}|{c.turnus_vorschlag}", push=push)
+    for c, f in erg.nachfolger:
+        notifier.hinweis(session, "gleicher_vertrag", f"Ist das derselbe Vertrag wie {c.name}?",
+                         f"{euro(abs(f['buchungen'][-1]['betrag']))} am {f['buchungen'][-1]['datum']:%d.%m.%Y} sieht fast "
+                         "genauso aus – bitte bestätigen oder ablehnen.",
+                         link=f"#/vertrag/{c.id}", schluessel=f"gleich|{c.id}|{f['muster']}", push=push)
     for c in erg.neu:
         # Nur wirklich neue Verträge melden – nicht alles, was beim ersten Import der Historie auftaucht.
         if c.letzte_zahlung and (heute - c.letzte_zahlung).days <= 40:
