@@ -341,6 +341,13 @@
         <span class="shrink-0 text-muted">{v.typ === 'einnahme' ? 'Nächster Eingang' : 'Nächste Zahlung'}</span>
         <span class="flex items-center gap-1.5 whitespace-nowrap text-right">{datum(v.naechste_faelligkeit)}<span class="text-muted">· {inTagen(v.naechste_faelligkeit)}</span><CalendarDays size={16} class="shrink-0 text-faint" /></span>
       </a>
+      <!-- eine eigene Zeile statt nur eines Stifts hinter dem Text: so erkennt man, dass sich der Rhythmus einstellen lässt -->
+      <button class="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left active:bg-card-hi" onclick={() => (rhythmusOffen = true)}>
+        <span class="shrink-0 text-muted">Rhythmus</span>
+        <span class="flex min-w-0 items-center gap-1.5 text-right">
+          <span class="truncate">{TURNUS[v.turnus]}</span>{#if v.turnus_fix}<span class="shrink-0 text-muted">· von dir</span>{/if}<ChevronRight size={18} class="shrink-0 text-faint" />
+        </span>
+      </button>
       {#if kategorien}
         <!-- eintippen filtert die Liste; was es noch nicht gibt (z. B. „Abo“), lässt sich direkt anlegen -->
         <div class="px-4 py-3">
