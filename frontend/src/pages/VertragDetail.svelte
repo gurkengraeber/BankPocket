@@ -417,10 +417,14 @@
             <span class="absolute top-0.5 size-6 rounded-full bg-white shadow transition-all {v.kuendigen ? 'left-[22px]' : 'left-0.5'}"></span>
           </span>
         </button>
-        <button class="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left text-accent" onclick={() => aendern({ gekuendigt_zum: v.kuendigung?.ende ?? heuteIso() })}>
-          <span>Ist gekündigt<span class="block text-[13px] text-muted">zum {datum(v.kuendigung?.ende ?? heuteIso())}{v.kuendigung ? '' : ' – trag Laufzeit und Frist ein, dann stimmt das Datum'}</span></span>
-          <Check size={18} />
-        </button>
+        <!-- eine Aktion, kein Status: ein Knopf zum Eintragen, kein Häkchen -->
+        <div class="flex w-full items-center justify-between gap-3 px-4 py-3">
+          <span class="min-w-0">
+            <span class="block">Schon gekündigt?</span>
+            <span class="block text-[13px] text-muted">Dann trag es ein – der Vertrag endet zum {datum(v.kuendigung?.ende ?? heuteIso())}{v.kuendigung ? '' : ' (trag Laufzeit und Frist ein, dann stimmt das Datum)'}</span>
+          </span>
+          <button class="pill-accent shrink-0" onclick={() => aendern({ gekuendigt_zum: v.kuendigung?.ende ?? heuteIso() })}>Eintragen</button>
+        </div>
       {/if}
     </div>
 
