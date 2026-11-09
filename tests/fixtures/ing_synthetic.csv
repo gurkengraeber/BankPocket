@@ -1,0 +1,15 @@
+Umsatzanzeige;Datei erstellt am: 01.10.2026 12:00
+IBAN;DE00 0000 0000 0000 0000 00
+Kontoname;Girokonto
+Bank;ING
+Kunde;Max Mustermann
+Zeitraum;01.05.2026 - 30.09.2026
+Saldo;1.000,00;EUR
+
+Buchung;Valuta;Auftraggeber/Empfänger;Buchungstext;Verwendungszweck;Saldo;Währung;Betrag;Währung
+15.09.2026;15.09.2026;Streamflix GmbH;Lastschrift;Abo Mandatsref: MR-100 Gläubiger-ID: DE98ZZZ09999999999;900,00;EUR;-12,99;EUR
+15.08.2026;15.08.2026;Streamflix GmbH;Lastschrift;Abo Mandatsref: MR-100 Gläubiger-ID: DE98ZZZ09999999999;900,00;EUR;-12,99;EUR
+15.07.2026;15.07.2026;Streamflix GmbH;Lastschrift;Abo Mandatsref: MR-100 Gläubiger-ID: DE98ZZZ09999999999;900,00;EUR;-12,99;EUR
+28.09.2026;28.09.2026;Musterfirma AG;Gutschrift;Gehalt September;900,00;EUR;2.500,00;EUR
+28.08.2026;28.08.2026;Musterfirma AG;Gutschrift;Gehalt August;900,00;EUR;2.500,00;EUR
+28.07.2026;28.07.2026;Musterfirma AG;Gutschrift;Gehalt Juli;900,00;EUR;2.500,00;EUR

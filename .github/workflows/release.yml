@@ -1,0 +1,53 @@
+# Baut bei jedem Push auf „main“ die Oberfläche und veröffentlicht Code samt fertiger Oberfläche als Zweig
+# „release“ – derselbe Ablauf wie scripts/veroeffentlichen.sh. Der Heimserver holt „release“ alle paar Minuten
+# selbst (scripts/auto_deploy.sh). Von Hand anstoßen: Reiter „Actions“ → „Release veröffentlichen“ → „Run workflow“.
+name: Release veröffentlichen
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: true  # nur der neueste Stand zählt
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Oberfläche bauen
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Zweig „release“ schreiben
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          stand=$(git rev-parse --short HEAD)
+          tmp=$(mktemp -d)
+          git archive HEAD | tar -x -C "$tmp"
+          mkdir -p "$tmp/frontend"
+          cp -r frontend/dist "$tmp/frontend/dist"
+          chmod +x "$tmp"/scripts/*.sh
+          echo "$stand" > "$tmp/VERSION"   # zeigt /api/health und die Einstellungen
+          cd "$tmp"
+          git init -q -b release
+          git add -A -f   # frontend/dist steht in der .gitignore
+          git -c user.name=BankPocket -c user.email=noreply@bankpocket.invalid commit -q -m "Stand $stand"
+          git push -q --force "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" release
+          echo "release = Stand $stand veröffentlicht – der Server übernimmt ihn innerhalb von 5 Minuten."
